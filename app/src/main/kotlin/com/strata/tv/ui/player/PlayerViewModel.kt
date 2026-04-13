@@ -121,8 +121,14 @@ class PlayerViewModel @Inject constructor(
     // ── Public API ───────────────────────────────────────────────────
 
     /**
-     * Called once from the composable after the first composition to hand
-     * in the stream parameters and start playback.
+     * Called from the composable after (re)composition to hand in the
+     * stream parameters and start playback.
+     *
+     * The ViewModel is Activity-scoped — it outlives any single player
+     * session — so this must handle *subsequent* calls with a different
+     * URL by swapping the media item instead of silently ignoring them.
+     * Previously a `if (initialized) return` guard meant opening channel
+     * B after channel A kept playing channel A's stream.
      */
     fun initialize(
         streamUrl: String,
@@ -132,8 +138,12 @@ class PlayerViewModel @Inject constructor(
         contentType: String,
         artworkUrl: String,
     ) {
-        if (initialized) return
-        initialized = true
+        // No-op if the caller is re-asserting the same stream we're
+        // already set up for (e.g. a recomposition that doesn't change
+        // the nav args).
+        if (initialized && this.streamUrl == streamUrl) return
+
+        val firstTime = !initialized
 
         this.streamUrl = streamUrl
         this.title = title
@@ -142,12 +152,20 @@ class PlayerViewModel @Inject constructor(
         this.contentType = contentType
         this.artworkUrl = artworkUrl
 
-        player.addListener(playerListener)
+        // Reset per-stream state so the resume-seek fires once for the
+        // new URL and buffering spinner shows until STATE_READY.
+        resumeApplied = false
+        _uiState.update { it.copy(isBuffering = true, errorMessage = null) }
+
+        if (firstTime) {
+            initialized = true
+            player.addListener(playerListener)
+            startPeriodicSave()
+        }
+
         player.setMediaItem(MediaItem.fromUri(streamUrl))
         player.playWhenReady = true
         player.prepare()
-
-        startPeriodicSave()
     }
 
     fun togglePlayPause() {

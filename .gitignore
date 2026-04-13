@@ -22,3 +22,7 @@ app/build/
 
 # Crash logs
 hs_err_*.log
+
+# Claude Code agent worktrees + Kotlin compiler session caches.
+.claude/
+.kotlin/

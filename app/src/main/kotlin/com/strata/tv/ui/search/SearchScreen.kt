@@ -64,6 +64,7 @@ import com.strata.tv.ui.theme.StrataColors
 fun SearchScreen(
     modifier: Modifier = Modifier,
     viewModel: SearchViewModel = hiltViewModel(),
+    onResultClick: (SearchResult) -> Unit = {},
 ) {
     val query by viewModel.query.collectAsState()
     val uiState by viewModel.results.collectAsState()
@@ -99,7 +100,7 @@ fun SearchScreen(
                 EmptyHint("No results for \"$query\"")
             }
             is SearchUiState.Results -> {
-                ResultsList(state)
+                ResultsList(state, onResultClick)
             }
         }
     }
@@ -171,56 +172,47 @@ private fun SearchField(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun ResultsList(state: SearchUiState.Results) {
+private fun ResultsList(
+    state: SearchUiState.Results,
+    onResultClick: (SearchResult) -> Unit,
+) {
     TvLazyColumn(
         contentPadding = PaddingValues(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        // Channels section
         if (state.channels.isNotEmpty()) {
             item { SectionHeader("Channels (${state.channels.size})") }
             items(
                 items = state.channels.take(20),
                 key = { "ch:${it.contentId}" },
             ) { result ->
-                ResultRow(
-                    result = result,
-                    icon = Icons.Outlined.LiveTv,
-                    iconColor = StrataColors.StatusLive,
-                    typeLabel = "LIVE",
-                )
+                ResultRow(result, Icons.Outlined.LiveTv, StrataColors.StatusLive, "LIVE") {
+                    onResultClick(result)
+                }
             }
         }
 
-        // Movies section
         if (state.movies.isNotEmpty()) {
             item { SectionHeader("Movies (${state.movies.size})") }
             items(
                 items = state.movies.take(30),
                 key = { "mv:${it.contentId}" },
             ) { result ->
-                ResultRow(
-                    result = result,
-                    icon = Icons.Outlined.Movie,
-                    iconColor = StrataColors.AccentPrimary,
-                    typeLabel = "MOVIE",
-                )
+                ResultRow(result, Icons.Outlined.Movie, StrataColors.AccentPrimary, "MOVIE") {
+                    onResultClick(result)
+                }
             }
         }
 
-        // Shows section
         if (state.shows.isNotEmpty()) {
             item { SectionHeader("Shows (${state.shows.size})") }
             items(
                 items = state.shows.take(30),
                 key = { "sh:${it.contentId}" },
             ) { result ->
-                ResultRow(
-                    result = result,
-                    icon = Icons.Outlined.VideoLibrary,
-                    iconColor = StrataColors.AccentSecondary,
-                    typeLabel = "SHOW",
-                )
+                ResultRow(result, Icons.Outlined.VideoLibrary, StrataColors.AccentSecondary, "SHOW") {
+                    onResultClick(result)
+                }
             }
         }
     }
@@ -253,10 +245,11 @@ private fun ResultRow(
     icon: ImageVector,
     iconColor: androidx.compose.ui.graphics.Color,
     typeLabel: String,
+    onClick: () -> Unit,
 ) {
     ListItem(
         selected = false,
-        onClick = { /* TODO Phase 7/8 — navigate to player or series detail */ },
+        onClick = onClick,
         headlineContent = {
             Text(
                 text = result.title,

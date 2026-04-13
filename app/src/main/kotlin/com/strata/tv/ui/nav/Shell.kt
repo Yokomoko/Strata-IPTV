@@ -5,8 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -16,22 +14,31 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.unit.dp
 import com.strata.tv.ui.home.HomeScreen
+import com.strata.tv.ui.live.LiveScreen
+import com.strata.tv.ui.movies.MoviesScreen
+import com.strata.tv.ui.player.PlayerScreen
+import com.strata.tv.ui.search.SearchScreen
+import com.strata.tv.ui.settings.SettingsScreen
+import com.strata.tv.ui.shows.ShowsScreen
 import com.strata.tv.ui.theme.StrataColors
 
 /**
  * Top-level shell — renders the persistent sidebar on the left and
  * the currently-selected destination's screen on the right.
  *
+ * When a screen asks to play something (movies, shows, live channels,
+ * search results) it drops a [PlayerArgs] into [AppNavState.playerArgs]
+ * and this shell overlays [PlayerScreen] full-bleed on top of the
+ * selected tab.  Back from the player clears the overlay and reveals
+ * the original tab exactly as the user left it.
+ *
  * Focus model:
  * - On launch, the sidebar autofocuses (LaunchedEffect on first frame).
  * - D-pad Right from the sidebar enters the content area via the
  *   sidebar's exit-direction focus property.
- * - The back button toggles focus between sidebar and content
- *   without popping the navigator — same UX rule v1 ended up with
- *   after a lot of iteration.  See `lib/app/shell_scaffold.dart`
- *   in the Flutter app for the full back-handler logic.
+ * - The back button toggles focus between sidebar and content — or
+ *   closes the player if one is open.
  */
 @Composable
 fun Shell(
@@ -48,67 +55,87 @@ fun Shell(
     }
 
     BackHandler {
-        if (sidebarHasFocus) {
+        when {
+            // Player open → close it and reveal the tab underneath.
+            nav.playerArgs != null -> nav.closePlayer()
+
             // Sidebar has focus → push focus into the content area.
             // (Same gesture as Fire Stick remote's Back when the
             // user is parked on the sidebar — they want to keep
             // watching what's shown, not exit.)
-            runCatching { nav.contentRequester.requestFocus() }
-        } else {
+            sidebarHasFocus -> runCatching { nav.contentRequester.requestFocus() }
+
             // Content has focus → bounce back to sidebar.
-            runCatching { nav.sidebarRequester.requestFocus() }
+            else -> runCatching { nav.sidebarRequester.requestFocus() }
         }
     }
 
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(StrataColors.SurfaceVoid),
     ) {
-        Sidebar(
-            selected = nav.current,
-            onSelected = { nav.navigate(it) },
-            sidebarFocusRequester = nav.sidebarRequester,
-            modifier = Modifier.onFocusChanged { sidebarHasFocus = it.hasFocus },
-        )
+        // -- Base layer: sidebar + content ---------------------------------
+        Row(modifier = Modifier.fillMaxSize()) {
+            Sidebar(
+                selected = nav.current,
+                onSelected = { nav.navigate(it) },
+                sidebarFocusRequester = nav.sidebarRequester,
+                modifier = Modifier.onFocusChanged { sidebarHasFocus = it.hasFocus },
+            )
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .focusRequester(nav.contentRequester)
-                .onFocusChanged { if (it.hasFocus) sidebarHasFocus = false },
-        ) {
-            when (nav.current) {
-                Destination.Home -> HomeScreen()
-                Destination.Live -> Placeholder("TV Guide")
-                Destination.Movies -> Placeholder("Movies")
-                Destination.Shows -> Placeholder("Box Sets")
-                Destination.Search -> Placeholder("Search")
-                Destination.Settings -> Placeholder("Settings")
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .focusRequester(nav.contentRequester)
+                    .onFocusChanged { if (it.hasFocus) sidebarHasFocus = false },
+            ) {
+                when (nav.current) {
+                    Destination.Home -> HomeScreen()
+                    Destination.Live -> LiveScreen(
+                        onPlayChannel = { channel ->
+                            nav.openPlayer(
+                                PlayerArgs(
+                                    streamUrl = channel.streamUrl,
+                                    title = channel.displayName,
+                                    isLive = true,
+                                    contentType = "live",
+                                    artworkUrl = channel.logoUrl,
+                                ),
+                            )
+                        },
+                    )
+                    Destination.Movies -> MoviesScreen(onPlay = nav::openPlayer)
+                    Destination.Shows -> ShowsScreen(onPlay = nav::openPlayer)
+                    Destination.Search -> SearchScreen(
+                        onResultClick = { result ->
+                            nav.openPlayer(
+                                PlayerArgs(
+                                    streamUrl = result.streamUrl,
+                                    title = result.title.ifBlank { result.displayName },
+                                    isLive = result.contentType == "live",
+                                    contentType = result.contentType,
+                                    artworkUrl = result.artworkUrl,
+                                ),
+                            )
+                        },
+                    )
+                    Destination.Settings -> SettingsScreen()
+                }
             }
         }
-    }
-}
 
-/** Temporary placeholder for screens not yet built. */
-@Composable
-private fun Placeholder(label: String) {
-    androidx.compose.foundation.layout.Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(StrataColors.SurfaceVoid),
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
-        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-    ) {
-        androidx.tv.material3.Text(
-            text = label,
-            color = StrataColors.TextSecondary,
-            fontSize = androidx.compose.ui.unit.TextUnit.Unspecified,
-        )
-        androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp).width(8.dp))
-        androidx.tv.material3.Text(
-            text = "Not built yet — coming in a later phase.",
-            color = StrataColors.TextTertiary,
-        )
+        // -- Overlay layer: full-bleed player -----------------------------
+        nav.playerArgs?.let { args ->
+            PlayerScreen(
+                streamUrl = args.streamUrl,
+                title = args.title,
+                isLive = args.isLive,
+                resumePositionMs = args.resumePositionMs,
+                contentType = args.contentType,
+                artworkUrl = args.artworkUrl,
+                onExit = { nav.closePlayer() },
+            )
+        }
     }
 }

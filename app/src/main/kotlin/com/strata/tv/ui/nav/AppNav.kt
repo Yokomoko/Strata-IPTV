@@ -37,13 +37,45 @@ class AppNavState internal constructor(
     var current: Destination by mutableStateOf(initialDestination)
         private set
 
+    /**
+     * When non-null, [Shell] renders the player screen full-bleed on
+     * top of whatever tab was selected.  Closing the player (Back)
+     * clears this back to null and reveals the original tab.
+     */
+    var playerArgs: PlayerArgs? by mutableStateOf(null)
+        private set
+
     val sidebarRequester: FocusRequester = FocusRequester()
     val contentRequester: FocusRequester = FocusRequester()
 
     fun navigate(destination: Destination) {
         current = destination
     }
+
+    fun openPlayer(args: PlayerArgs) {
+        playerArgs = args
+    }
+
+    fun closePlayer() {
+        playerArgs = null
+    }
 }
+
+/**
+ * Args plumbed from a "play" tap on any card to the player screen.
+ * Plain data class — no Compose dependencies — so it can be passed
+ * around freely (Movies / Live / Search / Home all build one of
+ * these from their own row type and call [AppNavState.openPlayer]).
+ */
+@Stable
+data class PlayerArgs(
+    val streamUrl: String,
+    val title: String,
+    val isLive: Boolean,
+    val resumePositionMs: Long = 0,
+    val contentType: String = "movie",
+    val artworkUrl: String = "",
+)
 
 /** Composable factory — the state outlives configuration changes via [remember]. */
 @Composable

@@ -58,6 +58,7 @@ import com.strata.tv.ui.theme.StrataColors
 fun LiveScreen(
     modifier: Modifier = Modifier,
     viewModel: LiveViewModel = hiltViewModel(),
+    onPlayChannel: (ChannelWithGuide) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsState()
     val epgLoading by viewModel.epgLoading.collectAsState()
@@ -100,7 +101,7 @@ fun LiveScreen(
                     items = state.channels,
                     key = { it.channelEntity.contentId },
                 ) { channel ->
-                    ChannelRow(channel)
+                    ChannelRow(channel, onClick = { onPlayChannel(channel) })
                 }
             }
         }
@@ -192,9 +193,9 @@ private fun CategoryChips(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun ChannelRow(channel: ChannelWithGuide) {
+private fun ChannelRow(channel: ChannelWithGuide, onClick: () -> Unit) {
     Surface(
-        onClick = { /* TODO Phase 6 player launch */ },
+        onClick = onClick,
         shape = ClickableSurfaceDefaults.shape(
             shape = RoundedCornerShape(8.dp),
         ),

@@ -215,6 +215,15 @@ interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE series_title = :title ORDER BY season_number, episode_number")
     fun watchSeries(title: String): Flow<List<EpisodeEntity>>
 
+    /** First episode of a series (lowest season, then lowest episode) — for "play series" shortcuts. */
+    @Query(
+        """
+        SELECT * FROM episodes WHERE series_title = :title
+        ORDER BY season_number, episode_number LIMIT 1
+        """,
+    )
+    suspend fun firstOf(title: String): EpisodeEntity?
+
     @Query("UPDATE episodes SET resume_position_ms = :pos, watched = :watched WHERE content_id = :contentId")
     suspend fun updateProgress(contentId: String, pos: Long, watched: Boolean)
 

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -28,20 +29,31 @@ import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
+import com.strata.tv.ui.nav.PlayerArgs
 import com.strata.tv.ui.theme.StrataColors
 import com.strata.tv.ui.widgets.PosterCard
 
 /**
  * Movies grid screen — displays all visible movies as poster cards in
  * a vertical grid, with a genre chip row along the top for filtering.
+ *
+ * Clicks go through the ViewModel so the stream URL (which lives on
+ * the content_items row, not movies) can be resolved off the main
+ * thread before the player is opened.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun MoviesScreen(
     modifier: Modifier = Modifier,
     viewModel: MoviesViewModel = hiltViewModel(),
+    onPlay: (PlayerArgs) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsState()
+
+    // Bridge VM playEvents → Shell via the onPlay callback.
+    LaunchedEffect(viewModel) {
+        viewModel.playEvents.collect(onPlay)
+    }
 
     Column(
         modifier = modifier
@@ -106,7 +118,7 @@ fun MoviesScreen(
                         title = movie.movieTitle,
                         subtitle = movie.year?.toString(),
                         posterUrl = movie.posterUrl.takeIf { it.isNotBlank() },
-                        onClick = { /* TODO Phase 4 player */ },
+                        onClick = { viewModel.playMovie(movie) },
                         cardSize = DpSize(180.dp, 320.dp),
                     )
                 }

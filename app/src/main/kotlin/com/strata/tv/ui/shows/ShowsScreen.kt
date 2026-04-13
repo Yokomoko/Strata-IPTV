@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -28,6 +29,7 @@ import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
+import com.strata.tv.ui.nav.PlayerArgs
 import com.strata.tv.ui.theme.StrataColors
 import com.strata.tv.ui.widgets.PosterCard
 
@@ -35,14 +37,24 @@ import com.strata.tv.ui.widgets.PosterCard
  * Box Sets grid screen — displays all visible series as poster cards
  * in a vertical grid, with a genre chip row along the top for
  * filtering.
+ *
+ * No episode-picker screen exists yet, so a click plays the first
+ * available episode (S01E01 or earliest).  Details / episode list
+ * UI ships in a later phase.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun ShowsScreen(
     modifier: Modifier = Modifier,
     viewModel: ShowsViewModel = hiltViewModel(),
+    onPlay: (PlayerArgs) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsState()
+
+    // Bridge VM playEvents → Shell via the onPlay callback.
+    LaunchedEffect(viewModel) {
+        viewModel.playEvents.collect(onPlay)
+    }
 
     Column(
         modifier = modifier
@@ -113,7 +125,7 @@ fun ShowsScreen(
                             else -> null
                         },
                         posterUrl = show.posterUrl.takeIf { it.isNotBlank() },
-                        onClick = { /* TODO Phase 4 player */ },
+                        onClick = { viewModel.playSeries(show) },
                         cardSize = DpSize(180.dp, 320.dp),
                     )
                 }

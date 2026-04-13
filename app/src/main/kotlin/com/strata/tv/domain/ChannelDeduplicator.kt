@@ -209,29 +209,35 @@ object ChannelDeduplicator {
         //    regex alternation is left-to-right first-match.  The
         //    capture group preserves a trailing `+N` timeshift so
         //    "Channel 4 London +1" reduces to "channel 4 +1".
-        n = n.replaceFirst(
-            Regex(
-                """\s+""" +
-                    "(?:" +
-                    """northern ireland|""" +
-                    """south\s*&?\s*east|south west|south\s*&?\s*west|""" +
-                    """north\s*&?\s*east|north east|north west|north\s*&?\s*west|""" +
-                    """east midlands|west midlands|""" +
-                    """central west|central east|""" +
-                    """north east & cumbria|east yorkshire|""" +
-                    """yorks & lincs|yorkshire & lincolnshire|""" +
-                    """channel islands|""" +
-                    """s\s+west\s+sd|s\s+west|s\s+east|""" +
-                    """london|scotland|wales|ireland|""" +
-                    """south|north|east|west|central|""" +
-                    """anglia|meridian|yorkshire|ulster|border|oxford|""" +
-                    """tyne|granada|cymru""" +
-                    ")" +
-                    """(?:\s+(?:sd|hd|fhd))?""" +
-                    """(\s*\+\d+)?""" +
-                    """\s*$""",
-            ),
-        ) { it.groupValues.getOrElse(1) { "" } }
+        // Kotlin's `String.replaceFirst(Regex, String)` only accepts a
+        // literal replacement string, so we flip to the
+        // `Regex.replaceFirst(CharSequence, transform)` extension which
+        // does take a lambda — and lets us preserve the optional `+N`
+        // timeshift capture group.
+        val regionalSuffixPattern = Regex(
+            """\s+""" +
+                "(?:" +
+                """northern ireland|""" +
+                """south\s*&?\s*east|south west|south\s*&?\s*west|""" +
+                """north\s*&?\s*east|north east|north west|north\s*&?\s*west|""" +
+                """east midlands|west midlands|""" +
+                """central west|central east|""" +
+                """north east & cumbria|east yorkshire|""" +
+                """yorks & lincs|yorkshire & lincolnshire|""" +
+                """channel islands|""" +
+                """s\s+west\s+sd|s\s+west|s\s+east|""" +
+                """london|scotland|wales|ireland|""" +
+                """south|north|east|west|central|""" +
+                """anglia|meridian|yorkshire|ulster|border|oxford|""" +
+                """tyne|granada|cymru""" +
+                ")" +
+                """(?:\s+(?:sd|hd|fhd))?""" +
+                """(\s*\+\d+)?""" +
+                """\s*$""",
+        )
+        n = regionalSuffixPattern.replace(n) { match ->
+            match.groupValues.getOrElse(1) { "" }
+        }
 
         // 7. Strip parenthetical / slash suffixes ("starts (7pm)/", "(EN)").
         n = n.replaceFirst(Regex("""\s+starts\s+\(.*$"""), "")

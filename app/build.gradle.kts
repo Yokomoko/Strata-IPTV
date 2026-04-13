@@ -109,4 +109,11 @@ dependencies {
 
     // Background workers
     implementation(libs.work.runtime.ktx)
+
+    // Unit tests — pure JVM, no Android runtime needed.  Domain
+    // package + parsers must stay JVM-testable so we can run TDD
+    // on the algorithms in seconds rather than minutes.
+    testImplementation(libs.junit)
+    testImplementation(libs.truth)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

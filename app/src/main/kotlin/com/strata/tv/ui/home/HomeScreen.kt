@@ -39,7 +39,11 @@ import com.strata.tv.data.db.ContinueWatchingEntity
 import com.strata.tv.data.db.MovieEntity
 import com.strata.tv.data.repo.SyncService
 import com.strata.tv.ui.theme.StrataColors
+import com.strata.tv.ui.widgets.Featured
+import com.strata.tv.ui.widgets.ImmersiveBackdrop
+import com.strata.tv.ui.widgets.PosterCard
 import com.strata.tv.ui.widgets.Rail
+import com.strata.tv.ui.widgets.rememberFeaturedState
 
 /**
  * Home screen — Netflix-style vertical stack of horizontal rails.
@@ -57,41 +61,64 @@ fun HomeScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val sync by viewModel.syncProgress.collectAsState()
+    val featured = rememberFeaturedState()
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(StrataColors.SurfaceVoid)
-            .verticalScroll(rememberScrollState()),
-    ) {
-        Hero(
-            channels = state.channelCount,
-            movies = state.movieCount,
-            series = state.seriesCount,
-        )
-        SyncBanner(sync)
+    // The screen is a Box stack: backdrop at the back, scrolling
+    // content overlaid on top.  As cards gain focus they push the
+    // featured-item state, which the backdrop animates to.
+    Box(modifier = modifier.fillMaxSize()) {
+        ImmersiveBackdrop(state = featured)
 
-        Spacer(Modifier.height(8.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Hero(
+                channels = state.channelCount,
+                movies = state.movieCount,
+                series = state.seriesCount,
+            )
+            SyncBanner(sync)
 
-        if (state.continueWatching.isNotEmpty()) {
-            Rail(
-                title = "Continue Watching",
-                accentColor = StrataColors.AccentSecondary,
-                items = state.continueWatching,
-            ) { _, item -> CwCard(item) }
+            Spacer(Modifier.height(8.dp))
+
+            if (state.continueWatching.isNotEmpty()) {
+                Rail(
+                    title = "Continue Watching",
+                    accentColor = StrataColors.AccentSecondary,
+                    items = state.continueWatching,
+                ) { _, item ->
+                    CwCard(item, onFocused = { featured.setFeatured(item.toFeatured()) })
+                }
+            }
+
+            if (state.recentMovies.isNotEmpty()) {
+                Rail(
+                    title = "Recently Added",
+                    accentColor = StrataColors.AccentPrimary,
+                    items = state.recentMovies,
+                ) { _, item ->
+                    MovieCard(item, onFocused = { featured.setFeatured(item.toFeatured()) })
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
         }
-
-        if (state.recentMovies.isNotEmpty()) {
-            Rail(
-                title = "Recently Added",
-                accentColor = StrataColors.AccentPrimary,
-                items = state.recentMovies,
-            ) { _, item -> MovieCard(item) }
-        }
-
-        Spacer(Modifier.height(24.dp))
     }
 }
+
+private fun MovieEntity.toFeatured(): Featured = Featured(
+    key = "movie:$contentId",
+    title = movieTitle,
+    backdropUrl = posterUrl.takeIf { it.isNotBlank() },
+)
+
+private fun ContinueWatchingEntity.toFeatured(): Featured = Featured(
+    key = "cw:$contentId",
+    title = contentId,
+    backdropUrl = artworkUrl.takeIf { it.isNotBlank() },
+)
 
 @Composable
 private fun Hero(channels: Int, movies: Int, series: Int) {
@@ -159,88 +186,31 @@ private fun SyncBanner(progress: SyncService.Progress) {
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun MovieCard(movie: MovieEntity) {
-    var focused by remember { mutableStateOf(false) }
-    Surface(
+private fun MovieCard(movie: MovieEntity, onFocused: () -> Unit = {}) {
+    PosterCard(
+        title = movie.movieTitle,
+        subtitle = movie.year?.toString(),
+        posterUrl = movie.posterUrl.takeIf { it.isNotBlank() },
         onClick = { /* TODO Phase 4 player */ },
-        modifier = Modifier
-            .size(width = 120.dp, height = 220.dp)
-            .onFocusChanged { focused = it.isFocused },
-        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = StrataColors.SurfaceRaised,
-            focusedContainerColor = StrataColors.AccentPrimary,
-        ),
-    ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(160.dp)
-                    .background(StrataColors.SurfaceFloat),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = initialsFor(movie.movieTitle),
-                    color = StrataColors.TextSecondary,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = movie.movieTitle,
-                color = if (focused) Color.White else StrataColors.TextPrimary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 2,
-            )
-            movie.year?.let {
-                Text(
-                    text = it.toString(),
-                    color = StrataColors.TextTertiary,
-                    fontSize = 10.sp,
-                )
-            }
-        }
-    }
+        cardSize = androidx.compose.ui.unit.DpSize(width = 140.dp, height = 252.dp),
+        onFocused = onFocused,
+    )
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun CwCard(item: ContinueWatchingEntity) {
-    var focused by remember { mutableStateOf(false) }
-    Surface(
+private fun CwCard(item: ContinueWatchingEntity, onFocused: () -> Unit = {}) {
+    val pct = if (item.totalDurationMs > 0) {
+        (item.resumePositionMs.toFloat() / item.totalDurationMs * 100).toInt()
+    } else 0
+    PosterCard(
+        title = item.contentId,
+        subtitle = "Resume · $pct%",
+        posterUrl = item.artworkUrl.takeIf { it.isNotBlank() },
         onClick = { /* TODO Phase 4 player */ },
-        modifier = Modifier
-            .size(width = 120.dp, height = 220.dp)
-            .onFocusChanged { focused = it.isFocused },
-        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = StrataColors.SurfaceRaised,
-            focusedContainerColor = StrataColors.AccentPrimary,
-        ),
-    ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Text(
-                text = item.contentId,
-                color = if (focused) Color.White else StrataColors.TextPrimary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 2,
-            )
-            val pct = if (item.totalDurationMs > 0) {
-                (item.resumePositionMs.toFloat() / item.totalDurationMs * 100).toInt()
-            } else 0
-            Text(
-                text = "Resume · $pct%",
-                color = StrataColors.TextTertiary,
-                fontSize = 10.sp,
-            )
-        }
-    }
+        cardSize = androidx.compose.ui.unit.DpSize(width = 140.dp, height = 252.dp),
+        onFocused = onFocused,
+    )
 }
 
 private fun initialsFor(title: String): String {

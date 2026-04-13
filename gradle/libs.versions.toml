@@ -72,6 +72,11 @@ coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp"
 work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
 hilt-work = { group = "androidx.hilt", name = "hilt-work", version = "1.2.0" }
 
+# Unit testing.
+junit = { group = "junit", name = "junit", version = "4.13.2" }
+truth = { group = "com.google.truth", name = "truth", version = "1.4.4" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }

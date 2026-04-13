@@ -19,10 +19,12 @@ import com.strata.tv.domain.ContentIdHasher
 import com.strata.tv.domain.ContentType
 import com.strata.tv.domain.SkyChannelNumbers
 import com.strata.tv.domain.TitleParser
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import javax.inject.Inject
@@ -79,10 +81,20 @@ class SyncService @Inject constructor(
     suspend fun syncFromUrl(playlistUrl: String, sourceId: Int) {
         try {
             _progress.value = Progress.Downloading(0)
-            val body = withTimeoutNote("download") {
+            // OkHttp's Call.execute() blocks and MUST run off the
+            // main thread — otherwise it throws
+            // NetworkOnMainThreadException whose `message` is sometimes
+            // null, surfacing in the UI as "Sync failed during
+            // download: null".  Force IO dispatcher.
+            val body = withContext(Dispatchers.IO) {
                 http.newCall(Request.Builder().url(playlistUrl).build())
                     .execute()
-                    .use { it.body?.string() ?: error("Empty playlist body") }
+                    .use { response ->
+                        if (!response.isSuccessful) {
+                            error("HTTP ${response.code} fetching $playlistUrl")
+                        }
+                        response.body?.string() ?: error("Empty playlist body")
+                    }
             }
 
             // Buffer entries by content type so we can group + dedupe at
@@ -121,7 +133,22 @@ class SyncService @Inject constructor(
                 totalSkipped = 0,
             )
         } catch (e: Throwable) {
-            _progress.value = Progress.Error(e.message ?: e::class.simpleName.orEmpty())
+            // Build a useful message: outer class + outer message +
+            // root cause class + root cause message.  Avoids the
+            // dreaded "null" surfaces from exceptions whose message
+            // field happens to be empty.
+            val rootCause = generateSequence(e) { it.cause }.last()
+            val msg = buildString {
+                append(e::class.simpleName ?: "Throwable")
+                e.message?.let { append(": ").append(it) }
+                if (rootCause !== e) {
+                    append(" (cause: ")
+                    append(rootCause::class.simpleName ?: "Throwable")
+                    rootCause.message?.let { append(": ").append(it) }
+                    append(")")
+                }
+            }
+            _progress.value = Progress.Error(msg)
             throw e
         }
     }
@@ -305,14 +332,4 @@ class SyncService @Inject constructor(
         episodeDao.upsertAll(episodeRows)
     }
 
-    /**
-     * Wraps a network call so any failure surfaces with the stage it
-     * was at — easier to triage in the device log than a bare IO
-     * exception with no context.
-     */
-    private suspend inline fun <T> withTimeoutNote(stage: String, block: () -> T): T = try {
-        block()
-    } catch (e: Throwable) {
-        throw RuntimeException("Sync failed during $stage: ${e.message}", e)
-    }
 }

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirrors lib/core/theme/strata_colors.dart in v1 so the brand
+         feel carries across.  Compose code references these via
+         StrataColors.kt; XML themes use them directly for the launch
+         window. -->
+    <color name="strata_surface_void">#0A0A0F</color>
+    <color name="strata_accent_primary">#7B5CF0</color>
+    <color name="strata_accent_secondary">#00D4AA</color>
+</resources>

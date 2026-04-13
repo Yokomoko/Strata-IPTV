@@ -1,0 +1,24 @@
+# Gradle / Android build output
+build/
+.gradle/
+local.properties
+*.iml
+
+# IDE
+.idea/
+*.swp
+
+# Keystore (we don't commit signing material).
+*.keystore
+*.jks
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated APKs
+app/release/
+app/build/
+
+# Crash logs
+hs_err_*.log

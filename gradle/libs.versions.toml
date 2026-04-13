@@ -32,6 +32,7 @@ compose-runtime = { group = "androidx.compose.runtime", name = "runtime" }
 compose-ui = { group = "androidx.compose.ui", name = "ui" }
 compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 
 # TV-specific Compose
 tv-foundation = { group = "androidx.tv", name = "tv-foundation", version.ref = "tvFoundation" }

@@ -1,0 +1,355 @@
+package com.strata.tv.data.db
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import androidx.room.Upsert
+import kotlinx.coroutines.flow.Flow
+import java.time.Instant
+
+// ---------------------------------------------------------------------------
+// Sources
+// ---------------------------------------------------------------------------
+@Dao
+interface SourceDao {
+    @Query("SELECT * FROM sources")
+    suspend fun all(): List<SourceEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(source: SourceEntity): Long
+
+    @Query("UPDATE sources SET last_synced = :at WHERE id = :id")
+    suspend fun markSynced(id: Int, at: Instant)
+}
+
+// ---------------------------------------------------------------------------
+// Content items — base table.
+// ---------------------------------------------------------------------------
+@Dao
+interface ContentDao {
+    @Upsert
+    suspend fun upsertAll(items: List<ContentItemEntity>)
+
+    @Query("SELECT * FROM content_items WHERE content_id = :contentId LIMIT 1")
+    suspend fun byContentId(contentId: String): ContentItemEntity?
+
+    @Query("SELECT * FROM content_items WHERE content_type = :type")
+    suspend fun byType(type: String): List<ContentItemEntity>
+
+    /**
+     * Search across content items.  Used by the global search field.
+     * Substring match on display_name + title + tvg_name; ranking
+     * (Levenshtein) happens in Kotlin on the result list.
+     */
+    @Query(
+        """
+        SELECT * FROM content_items
+        WHERE LOWER(display_name) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(title) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(tvg_name) LIKE '%' || LOWER(:query) || '%'
+        LIMIT 200
+        """,
+    )
+    suspend fun search(query: String): List<ContentItemEntity>
+}
+
+// ---------------------------------------------------------------------------
+// Channels — joined with content_items in the live screen via the repo.
+// ---------------------------------------------------------------------------
+@Dao
+interface ChannelDao {
+    @Upsert
+    suspend fun upsertAll(channels: List<ChannelEntity>)
+
+    @Query("SELECT * FROM channels")
+    fun watchAll(): Flow<List<ChannelEntity>>
+
+    @Query("SELECT * FROM channels WHERE is_favourite = 1")
+    fun watchFavourites(): Flow<List<ChannelEntity>>
+
+    @Query("UPDATE channels SET is_favourite = :fav WHERE content_id = :contentId")
+    suspend fun setFavourite(contentId: String, fav: Boolean)
+
+    @Query("UPDATE channels SET last_watched = :at WHERE content_id = :contentId")
+    suspend fun markWatched(contentId: String, at: Instant)
+}
+
+// ---------------------------------------------------------------------------
+// Movies — heavy DAO since the home + Movies screens both read here.
+// ---------------------------------------------------------------------------
+@Dao
+interface MovieDao {
+    @Upsert
+    suspend fun upsertAll(movies: List<MovieEntity>)
+
+    @Query("SELECT * FROM movies WHERE hidden = 0 ORDER BY year DESC")
+    fun watchAllByYear(): Flow<List<MovieEntity>>
+
+    @Query(
+        """
+        SELECT * FROM movies
+        WHERE hidden = 0 AND provider = :provider
+        ORDER BY year DESC
+        LIMIT :limit
+        """,
+    )
+    fun watchByProvider(provider: String, limit: Int = 40): Flow<List<MovieEntity>>
+
+    /** Movies eligible for TMDB enrichment (no poster yet). */
+    @Query(
+        """
+        SELECT * FROM movies
+        WHERE hidden = 0
+          AND (poster_url = '' OR genre = '' OR rating = 0.0)
+        ORDER BY poster_url ASC, year DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun needingEnrichment(limit: Int = 500): List<MovieEntity>
+
+    /** Movies that have a TMDB ID but no `provider` value yet. */
+    @Query(
+        """
+        SELECT * FROM movies
+        WHERE tmdb_id > 0 AND provider = '' AND hidden = 0
+        LIMIT :limit
+        """,
+    )
+    suspend fun needingProviderLookup(limit: Int = 200): List<MovieEntity>
+
+    @Query(
+        """
+        UPDATE movies SET poster_url = :poster, genre = :genre, rating = :rating,
+            language = :language, hidden = :hidden, tmdb_id = :tmdbId
+        WHERE content_id = :contentId
+        """,
+    )
+    suspend fun updateMetadata(
+        contentId: String,
+        poster: String,
+        genre: String,
+        rating: Double,
+        language: String,
+        hidden: Boolean,
+        tmdbId: Int,
+    )
+
+    @Query("UPDATE movies SET provider = :provider WHERE content_id = :contentId")
+    suspend fun updateProvider(contentId: String, provider: String)
+
+    @Query("UPDATE movies SET resume_position_ms = :pos, watched = :watched WHERE content_id = :contentId")
+    suspend fun updateProgress(contentId: String, pos: Long, watched: Boolean)
+
+    /** GROUP-BY for the home screen's "which providers have content" check. */
+    @Query("SELECT provider, COUNT(*) AS count FROM movies WHERE hidden = 0 AND provider != '' GROUP BY provider")
+    suspend fun countsByProvider(): List<ProviderCount>
+
+    @Query("SELECT COUNT(*) FROM movies WHERE hidden = 0")
+    fun watchVisibleCount(): Flow<Int>
+}
+
+// ---------------------------------------------------------------------------
+// Series + Episodes
+// ---------------------------------------------------------------------------
+@Dao
+interface SeriesDao {
+    @Upsert
+    suspend fun upsertAll(series: List<SeriesEntity>)
+
+    @Query("SELECT * FROM series WHERE hidden = 0")
+    fun watchAll(): Flow<List<SeriesEntity>>
+
+    @Query("SELECT * FROM series WHERE series_title = :title LIMIT 1")
+    suspend fun byTitle(title: String): SeriesEntity?
+
+    @Query(
+        """
+        SELECT * FROM series
+        WHERE hidden = 0 AND provider = :provider
+        ORDER BY id DESC
+        LIMIT :limit
+        """,
+    )
+    fun watchByProvider(provider: String, limit: Int = 40): Flow<List<SeriesEntity>>
+
+    @Query("SELECT * FROM series WHERE poster_url = '' AND hidden = 0 LIMIT :limit")
+    suspend fun needingEnrichment(limit: Int = 200): List<SeriesEntity>
+
+    @Query(
+        """
+        UPDATE series SET poster_url = :poster, backdrop_url = :backdrop,
+            plot = :plot, genre = :genre,
+            total_seasons = :totalSeasons, total_episodes = :totalEpisodes
+        WHERE series_title = :title
+        """,
+    )
+    suspend fun updateMetadata(
+        title: String,
+        poster: String,
+        backdrop: String,
+        plot: String,
+        genre: String,
+        totalSeasons: Int,
+        totalEpisodes: Int,
+    )
+
+    @Query("UPDATE series SET hidden = 1 WHERE series_title = :title")
+    suspend fun hide(title: String)
+
+    @Query("UPDATE series SET provider = :provider WHERE series_title = :title")
+    suspend fun updateProvider(title: String, provider: String)
+
+    @Query("SELECT provider, COUNT(*) AS count FROM series WHERE hidden = 0 AND provider != '' GROUP BY provider")
+    suspend fun countsByProvider(): List<ProviderCount>
+
+    @Query("SELECT COUNT(*) FROM series WHERE hidden = 0")
+    fun watchCount(): Flow<Int>
+}
+
+@Dao
+interface EpisodeDao {
+    @Upsert
+    suspend fun upsertAll(episodes: List<EpisodeEntity>)
+
+    @Query("SELECT * FROM episodes WHERE series_title = :title ORDER BY season_number, episode_number")
+    fun watchSeries(title: String): Flow<List<EpisodeEntity>>
+
+    @Query("UPDATE episodes SET resume_position_ms = :pos, watched = :watched WHERE content_id = :contentId")
+    suspend fun updateProgress(contentId: String, pos: Long, watched: Boolean)
+
+    @Query(
+        """
+        UPDATE episodes SET episode_title = :title
+        WHERE series_title = :series
+          AND season_number = :season
+          AND episode_number = :episode
+        """,
+    )
+    suspend fun updateName(series: String, season: Int, episode: Int, title: String)
+}
+
+// ---------------------------------------------------------------------------
+// Programmes — EPG entries, very large table on a typical playlist.
+// ---------------------------------------------------------------------------
+@Dao
+interface ProgrammeDao {
+    @Upsert
+    suspend fun upsertAll(programmes: List<ProgrammeEntity>)
+
+    @Query(
+        """
+        SELECT * FROM programmes
+        WHERE start_time < :to AND end_time > :from
+        ORDER BY start_time ASC
+        """,
+    )
+    suspend fun inRange(from: Instant, to: Instant): List<ProgrammeEntity>
+
+    @Query("DELETE FROM programmes WHERE end_time < :before")
+    suspend fun purgeBefore(before: Instant)
+
+    @Query("SELECT DISTINCT channel_id FROM programmes WHERE channel_id != ''")
+    suspend fun distinctChannelIds(): List<String>
+
+    /** Cheap check used by the EPG fetch worker to decide if data is still fresh. */
+    @Query("SELECT EXISTS(SELECT 1 FROM programmes WHERE end_time > :cutoff)")
+    suspend fun hasAfter(cutoff: Instant): Boolean
+}
+
+// ---------------------------------------------------------------------------
+// Continue Watching
+// ---------------------------------------------------------------------------
+@Dao
+interface ContinueWatchingDao {
+    /** Notification-emitting upsert — the rail re-renders. */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entry: ContinueWatchingEntity)
+
+    /**
+     * Silent upsert used by the player's periodic save — Room emits
+     * the change through Flow watchers regardless of the call site, so
+     * we mitigate by collapsing position updates client-side: the
+     * caller throttles to once per N seconds.  See Phase 4 player.
+     */
+    @Query(
+        """
+        INSERT OR REPLACE INTO continue_watching
+            (content_id, content_type, stream_url, artwork_url,
+             resume_position_ms, total_duration_ms, last_updated)
+        VALUES (:contentId, :contentType, :streamUrl, :artworkUrl,
+                :positionMs, :totalMs, :lastUpdated)
+        """,
+    )
+    suspend fun upsertSilent(
+        contentId: String,
+        contentType: String,
+        streamUrl: String,
+        artworkUrl: String,
+        positionMs: Long,
+        totalMs: Long,
+        lastUpdated: Instant,
+    )
+
+    @Query("SELECT * FROM continue_watching ORDER BY last_updated DESC LIMIT :limit")
+    fun watchAll(limit: Int = 20): Flow<List<ContinueWatchingEntity>>
+
+    @Query("DELETE FROM continue_watching WHERE content_id = :contentId")
+    suspend fun delete(contentId: String)
+}
+
+// ---------------------------------------------------------------------------
+// Watch history
+// ---------------------------------------------------------------------------
+@Dao
+interface WatchHistoryDao {
+    @Insert
+    suspend fun insert(entry: WatchHistoryEntity)
+
+    @Query("SELECT * FROM watch_history ORDER BY watched_at DESC LIMIT :limit")
+    fun watchRecent(limit: Int = 50): Flow<List<WatchHistoryEntity>>
+}
+
+// ---------------------------------------------------------------------------
+// Favourites
+// ---------------------------------------------------------------------------
+@Dao
+interface FavouriteDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun add(entry: FavouriteEntity)
+
+    @Query("DELETE FROM favourites WHERE content_id = :contentId")
+    suspend fun remove(contentId: String)
+
+    @Query("SELECT * FROM favourites")
+    fun watchAll(): Flow<List<FavouriteEntity>>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM favourites WHERE content_id = :contentId)")
+    fun watchIsFavourite(contentId: String): Flow<Boolean>
+}
+
+// ---------------------------------------------------------------------------
+// Watchlist (#25 from v1 backlog, landed at the same time)
+// ---------------------------------------------------------------------------
+@Dao
+interface WatchlistDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun add(entry: WatchlistEntity)
+
+    @Query("DELETE FROM watchlist WHERE content_id = :contentId")
+    suspend fun remove(contentId: String)
+
+    @Query("SELECT * FROM watchlist ORDER BY added_at DESC")
+    fun watchAll(): Flow<List<WatchlistEntity>>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM watchlist WHERE content_id = :contentId)")
+    fun watchIsInWatchlist(contentId: String): Flow<Boolean>
+}
+
+// ---------------------------------------------------------------------------
+// Helper projection used by the home screen.
+// ---------------------------------------------------------------------------
+data class ProviderCount(
+    @androidx.room.ColumnInfo(name = "provider") val provider: String,
+    @androidx.room.ColumnInfo(name = "count") val count: Int,
+)

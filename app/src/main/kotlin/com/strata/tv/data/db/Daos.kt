@@ -440,6 +440,14 @@ interface SeriesDao {
         firstAirYear: Int?,
     )
 
+    /** All series including hidden variants — used by [MovieDeduplicator.dedupSeries]. */
+    @Query("SELECT * FROM series")
+    suspend fun allIncludingHidden(): List<SeriesEntity>
+
+    /** Set the hidden flag on a single series by title. */
+    @Query("UPDATE series SET hidden = :hidden WHERE series_title = :title")
+    suspend fun setHidden(title: String, hidden: Boolean)
+
     @Query("UPDATE series SET hidden = 1 WHERE series_title = :title")
     suspend fun hide(title: String)
 

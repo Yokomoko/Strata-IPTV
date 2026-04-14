@@ -59,8 +59,8 @@ class SeriesEnrichmentService @Inject constructor(
                     query = series.seriesTitle,
                 )
                 val match = response.results.firstOrNull() ?: return@runCatching
-                val isEnglish = match.originalLanguage.isNullOrEmpty() ||
-                    match.originalLanguage == "en"
+                val isWanted = match.originalLanguage.orEmpty() in
+                    MovieEnrichmentService.WANTED_LANGUAGES
 
                 seriesDao.updateMetadata(
                     title = series.seriesTitle,
@@ -73,7 +73,7 @@ class SeriesEnrichmentService @Inject constructor(
                     plot = match.overview.orEmpty(),
                     genre = match.genreIds.joinToString(", ") { tvGenreName(it) },
                     language = match.originalLanguage.orEmpty(),
-                    hidden = !isEnglish,
+                    hidden = !isWanted,
                     tmdbId = match.id,
                     totalSeasons = series.totalSeasons,
                     totalEpisodes = series.totalEpisodes,

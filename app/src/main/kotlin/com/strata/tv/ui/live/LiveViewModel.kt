@@ -131,45 +131,88 @@ class LiveViewModel @Inject constructor(
     }
 
     /**
-     * Rebuild the full guide: join channels + content items + EPG.
+     * Rebuild the guide in two phases so the channel list appears instantly:
      *
-     * This is not a Flow-driven combine because the EPG matcher needs
-     * to be built once (suspend) and the programme window is a point-
-     * in-time query, not a live Flow.  We re-run this when:
-     * - The channel list emits a new value
-     * - The EPG fetch completes
+     * **Phase 1 (instant):** load channels + content items, re-derive
+     * categories via [ChannelCategorizer], and emit the list with null
+     * now/next so the UI renders immediately.
+     *
+     * **Phase 2 (background):** build the EPG matcher, query the
+     * programme window, and overlay now/next onto the existing entries.
      */
     private suspend fun refreshGuide() {
         try {
+            // ── Phase 1: channels + content (instant) ───────────────
             val channels = channelDao.watchAll().first()
             val liveContent = contentDao.byType("live")
             val contentByContentId = liveContent.associateBy { it.contentId }
 
-            // Build the EPG matcher, enriched with XMLTV display names
-            // when available from the last fetch.
-            val matcher = EpgChannelMatcher.build(
-                programmeDao = programmeDao,
-                xmltvDisplayNames = epgFetchService.lastParseDisplayNames,
-            )
-
-            // Fetch programmes in a 4-hour window from now.
-            val now = Instant.now()
-            val windowEnd = now.plus(NOW_NEXT_WINDOW_HOURS, ChronoUnit.HOURS)
-            val programmes = programmeDao.inRange(now, windowEnd)
-
-            // Group programmes by their XMLTV channel id for fast lookup.
-            val progByChannel = programmes.groupBy { it.channelId }
-
-            val result = mutableListOf<ChannelWithGuide>()
+            val phase1 = mutableListOf<ChannelWithGuide>()
             val categorySet = mutableSetOf<String>()
 
             for (channel in channels) {
                 val content = contentByContentId[channel.contentId] ?: continue
                 val displayName = ChannelDeduplicator.cleanChannelName(content.displayName)
 
-                // Resolve the XMLTV channel id for this channel.
-                val xmltvId = matcher.resolve(content)
+                // Re-derive category on-the-fly from the current categoriser
+                // rules so updated categories apply without a full re-sync.
+                val category = ChannelCategorizer.categorise(
+                    content.displayName,
+                    content.groupTitle,
+                ).ifBlank { "General" }
+                categorySet.add(category)
 
+                phase1.add(
+                    ChannelWithGuide(
+                        channelEntity = channel,
+                        contentItem = content,
+                        displayName = displayName,
+                        logoUrl = channel.logoUrl,
+                        channelNumber = channel.channelNumber,
+                        category = category,
+                        nowTitle = null,
+                        nowDescription = null,
+                        nowStartTime = null,
+                        nowEndTime = null,
+                        nextTitle = null,
+                        nextStartTime = null,
+                        nextEndTime = null,
+                        streamUrl = content.streamUrl,
+                        xmltvChannelId = null,
+                    ),
+                )
+            }
+
+            // Sort by channel number (if available), then by name.
+            phase1.sortWith(compareBy<ChannelWithGuide> {
+                it.channelNumber ?: Int.MAX_VALUE
+            }.thenBy { it.displayName.lowercase() })
+
+            _channels.value = phase1
+
+            // Sort categories by the defined display order.
+            val order = ChannelCategorizer.displayOrder
+            val sorted = categorySet.sortedBy { cat ->
+                val idx = order.indexOf(cat)
+                if (idx >= 0) idx else order.size
+            }
+            _categories.value = listOf("All") + sorted
+
+            Log.i(TAG, "Phase 1: ${phase1.size} channels rendered (no EPG yet)")
+
+            // ── Phase 2: overlay EPG now/next ───────────────────────
+            val matcher = EpgChannelMatcher.build(
+                programmeDao = programmeDao,
+                xmltvDisplayNames = epgFetchService.lastParseDisplayNames,
+            )
+
+            val now = Instant.now()
+            val windowEnd = now.plus(NOW_NEXT_WINDOW_HOURS, ChronoUnit.HOURS)
+            val programmes = programmeDao.inRange(now, windowEnd)
+            val progByChannel = programmes.groupBy { it.channelId }
+
+            val phase2 = phase1.map { entry ->
+                val xmltvId = matcher.resolve(entry.contentItem)
                 val channelProgs = if (xmltvId != null) {
                     progByChannel[xmltvId] ?: emptyList()
                 } else {
@@ -182,50 +225,25 @@ class LiveViewModel @Inject constructor(
                     .filter { it.startTime > now }
                     .minByOrNull { it.startTime }
 
-                val category = channel.category.ifBlank { "General" }
-                categorySet.add(category)
-
-                result.add(
-                    ChannelWithGuide(
-                        channelEntity = channel,
-                        contentItem = content,
-                        displayName = displayName,
-                        logoUrl = channel.logoUrl,
-                        channelNumber = channel.channelNumber,
-                        category = category,
-                        nowTitle = nowProg?.title,
-                        nowDescription = nowProg?.description,
-                        nowStartTime = nowProg?.startTime,
-                        nowEndTime = nowProg?.endTime,
-                        nextTitle = nextProg?.title,
-                        nextStartTime = nextProg?.startTime,
-                        nextEndTime = nextProg?.endTime,
-                        streamUrl = content.streamUrl,
-                        xmltvChannelId = xmltvId,
-                    ),
+                entry.copy(
+                    nowTitle = nowProg?.title,
+                    nowDescription = nowProg?.description,
+                    nowStartTime = nowProg?.startTime,
+                    nowEndTime = nowProg?.endTime,
+                    nextTitle = nextProg?.title,
+                    nextStartTime = nextProg?.startTime,
+                    nextEndTime = nextProg?.endTime,
+                    xmltvChannelId = xmltvId,
                 )
             }
 
-            // Sort by channel number (if available), then by name.
-            result.sortWith(compareBy<ChannelWithGuide> {
-                it.channelNumber ?: Int.MAX_VALUE
-            }.thenBy { it.displayName.lowercase() })
+            _channels.value = phase2
 
-            _channels.value = result
-            // Sort categories by the defined display order, not alphabetically.
-            val order = ChannelCategorizer.displayOrder
-            val sorted = categorySet.sortedBy { cat ->
-                val idx = order.indexOf(cat)
-                if (idx >= 0) idx else order.size // Unknown categories go at the end
-            }
-            _categories.value = listOf("All") + sorted
-
-            // Log coverage summary.
-            val withGuide = result.count { it.nowTitle != null }
-            val total = result.size
+            val withGuide = phase2.count { it.nowTitle != null }
+            val total = phase2.size
             Log.i(
                 TAG,
-                "Guide refresh: $total channels, $withGuide with Now data " +
+                "Phase 2: $total channels, $withGuide with Now data " +
                     "(${if (total > 0) (withGuide * 100 / total) else 0}% coverage). " +
                     "XMLTV has ${matcher.xmltvChannelCount} channels. " +
                     "Matcher: ${matcher.coverageSummary()}",

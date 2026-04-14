@@ -73,8 +73,7 @@ class MovieEnrichmentService @Inject constructor(
                     year = movie.year,
                 )
                 val match = response.results.firstOrNull() ?: return
-                val isEnglish = match.originalLanguage.isNullOrEmpty() ||
-                    match.originalLanguage == "en"
+                val isWanted = match.originalLanguage.orEmpty() in WANTED_LANGUAGES
 
                 movieDao.updateMetadata(
                     contentId = movie.contentId,
@@ -84,11 +83,11 @@ class MovieEnrichmentService @Inject constructor(
                     genre = match.genreIds.joinToString(", ") { genreName(it) },
                     rating = match.voteAverage,
                     language = match.originalLanguage.orEmpty(),
-                    hidden = !isEnglish,
+                    hidden = !isWanted,
                     tmdbId = match.id,
                 )
 
-                if (!isEnglish) return
+                if (!isWanted) return
                 tmdbId = match.id
                 delay(PACE_MS)
             }
@@ -155,6 +154,9 @@ class MovieEnrichmentService @Inject constructor(
         private const val TAG = "MovieEnrichment"
         private const val PACE_MS = 80L
         private const val CONCURRENCY = 4
+
+        /** Languages the user wants to keep — English or unspecified. */
+        val WANTED_LANGUAGES = setOf("en", "")
 
         fun formatCast(credits: TmdbCredits?): String =
             credits?.cast

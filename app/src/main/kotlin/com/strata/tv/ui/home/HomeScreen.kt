@@ -337,6 +337,10 @@ private fun HeroCarousel(
     }
 
     Box(
+        // Align TopStart so the hero's focus bounds start at the left edge.
+        // This causes Compose's focus search on D-pad Down to pick the
+        // leftmost card in the first rail below, not the middle one.
+        contentAlignment = Alignment.TopStart,
         modifier = Modifier
             .fillMaxWidth()
             .height(340.dp)

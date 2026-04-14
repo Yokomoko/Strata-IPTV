@@ -1,7 +1,5 @@
 package com.strata.tv.ui.movies
 
-import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,7 +21,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,6 +45,7 @@ import com.strata.tv.data.db.MovieEntity
 import com.strata.tv.ui.nav.PlayerArgs
 import com.strata.tv.ui.theme.StrataColors
 import com.strata.tv.ui.widgets.GenreChips
+import com.strata.tv.ui.widgets.TrailerWebView
 import com.strata.tv.ui.widgets.MetadataChip
 import com.strata.tv.ui.widgets.ShimmerHero
 
@@ -105,6 +106,7 @@ private fun MovieDetailContent(
     onToggleWatchlist: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
+    var showTrailer by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // -- Full-bleed backdrop -----------------------------------------
@@ -297,12 +299,8 @@ private fun MovieDetailContent(
 
                 // Watch Trailer
                 if (movie.trailerUrl.isNotBlank()) {
-                    val context = LocalContext.current
                     Surface(
-                        onClick = {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(movie.trailerUrl))
-                            context.startActivity(intent)
-                        },
+                        onClick = { showTrailer = true },
                         shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
                         colors = ClickableSurfaceDefaults.colors(
                             containerColor = StrataColors.SurfaceFloat,
@@ -347,6 +345,15 @@ private fun MovieDetailContent(
                     }
                 }
             }
+        }
+
+        // -- Trailer WebView overlay ----------------------------------------
+        if (showTrailer && movie.trailerUrl.isNotBlank()) {
+            val youtubeKey = movie.trailerUrl.substringAfter("v=").substringBefore("&")
+            TrailerWebView(
+                youtubeKey = youtubeKey,
+                onDismiss = { showTrailer = false },
+            )
         }
     }
 }

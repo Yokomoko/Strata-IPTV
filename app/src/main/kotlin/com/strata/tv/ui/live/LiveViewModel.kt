@@ -11,6 +11,7 @@ import com.strata.tv.data.db.ProgrammeDao
 import com.strata.tv.data.db.ProgrammeEntity
 import com.strata.tv.data.epg.EpgChannelMatcher
 import com.strata.tv.data.repo.EpgFetchService
+import com.strata.tv.domain.ChannelCategorizer
 import com.strata.tv.domain.ChannelDeduplicator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -211,7 +212,13 @@ class LiveViewModel @Inject constructor(
             }.thenBy { it.displayName.lowercase() })
 
             _channels.value = result
-            _categories.value = listOf("All") + categorySet.sorted()
+            // Sort categories by the defined display order, not alphabetically.
+            val order = ChannelCategorizer.displayOrder
+            val sorted = categorySet.sortedBy { cat ->
+                val idx = order.indexOf(cat)
+                if (idx >= 0) idx else order.size // Unknown categories go at the end
+            }
+            _categories.value = listOf("All") + sorted
 
             // Log coverage summary.
             val withGuide = result.count { it.nowTitle != null }

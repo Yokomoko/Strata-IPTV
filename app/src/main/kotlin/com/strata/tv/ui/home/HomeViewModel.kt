@@ -193,7 +193,9 @@ class HomeViewModel @Inject constructor(
                 .map { it.key }
 
             val rails = topGenres.mapNotNull { genre ->
-                val movies = movieDao.byGenre(genre, limit = 20)
+                val movies = movieDao.byGenre(genre, limit = 40)
+                    .distinctBy { it.movieTitle.lowercase() }
+                    .take(20)
                 if (movies.size >= 3) HomeGenreRail(genre, movies) else null
             }
             _genreRails.value = rails
@@ -212,7 +214,9 @@ class HomeViewModel @Inject constructor(
                 .take(6)
 
             val rails = topProviders.mapNotNull { prov ->
-                val movies = movieDao.byProviderForList(prov.provider, limit = 20)
+                val movies = movieDao.byProviderForList(prov.provider, limit = 40)
+                    .distinctBy { it.movieTitle.lowercase() } // dedup quality variants
+                    .take(20)
                 if (movies.size >= 3) {
                     HomeProviderRail("New on ${prov.provider}", movies)
                 } else null

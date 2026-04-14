@@ -14,6 +14,7 @@ object ChannelCategorizer {
     /** Display order for the TV Guide category chip bar. */
     val displayOrder: List<String> = listOf(
         "All",
+        "Favourites",
         "Entertainment",
         "Cinema",
         "Sport",

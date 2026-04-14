@@ -85,6 +85,8 @@ data class PlayerArgs(
     val resumePositionMs: Long = 0L,
     val contentType: String = "movie",
     val artworkUrl: String = "",
+    /** Content ID for tracking (e.g. marking a live channel as last-watched). */
+    val contentId: String = "",
 )
 
 /** Composable factory. */

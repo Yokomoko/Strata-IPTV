@@ -75,15 +75,22 @@ class LiveViewModel @Inject constructor(
     private val _selectedCategory = MutableStateFlow("All")
     val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
 
+    /**
+     * The content ID of the most recently watched live channel.
+     * Used by the UI to auto-scroll to the last-watched row.
+     */
+    private val _lastWatchedContentId = MutableStateFlow<String?>(null)
+    val lastWatchedContentId: StateFlow<String?> = _lastWatchedContentId.asStateFlow()
+
     val state: StateFlow<LiveUiState> = combine(
         _channels,
         _categories,
         _selectedCategory,
     ) { channels, categories, selected ->
-        val filtered = if (selected == "All") {
-            channels
-        } else {
-            channels.filter { it.category == selected }
+        val filtered = when (selected) {
+            "All" -> channels
+            "Favourites" -> channels.filter { it.isFavourite }
+            else -> channels.filter { it.category == selected }
         }
         LiveUiState(
             channels = filtered,
@@ -128,6 +135,27 @@ class LiveViewModel @Inject constructor(
 
     fun selectCategory(category: String) {
         _selectedCategory.value = category
+    }
+
+    /** Toggle the favourite status of a channel by its content ID. */
+    fun toggleFavourite(contentId: String, currentlyFavourite: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            channelDao.setFavourite(contentId, !currentlyFavourite)
+            // The Room Flow from watchAll() will trigger refreshGuide()
+            // automatically, which rebuilds the channel list with the
+            // updated isFavourite flag.
+        }
+    }
+
+    /**
+     * Mark a live channel as last-watched with the current timestamp.
+     * Called when the user starts playing a live channel.
+     */
+    fun markChannelWatched(contentId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            channelDao.markWatched(contentId, Instant.now())
+            _lastWatchedContentId.value = contentId
+        }
     }
 
     /**
@@ -193,6 +221,7 @@ class LiveViewModel @Inject constructor(
                         logoUrl = channel.logoUrl,
                         channelNumber = channel.channelNumber,
                         category = category,
+                        isFavourite = channel.isFavourite,
                         nowTitle = nowProg?.title,
                         nowDescription = nowProg?.description,
                         nowStartTime = nowProg?.startTime,
@@ -212,6 +241,11 @@ class LiveViewModel @Inject constructor(
             }.thenBy { it.displayName.lowercase() })
 
             _channels.value = result
+
+            // Add the Favourites pseudo-category if any channels are favourited.
+            val hasFavourites = result.any { it.isFavourite }
+            if (hasFavourites) categorySet.add("Favourites")
+
             // Sort categories by the defined display order, not alphabetically.
             val order = ChannelCategorizer.displayOrder
             val sorted = categorySet.sortedBy { cat ->
@@ -219,6 +253,14 @@ class LiveViewModel @Inject constructor(
                 if (idx >= 0) idx else order.size // Unknown categories go at the end
             }
             _categories.value = listOf("All") + sorted
+
+            // Resolve the last-watched channel on first load.
+            if (_lastWatchedContentId.value == null) {
+                val lastWatched = result
+                    .filter { it.channelEntity.lastWatched != null }
+                    .maxByOrNull { it.channelEntity.lastWatched!! }
+                _lastWatchedContentId.value = lastWatched?.channelEntity?.contentId
+            }
 
             // Log coverage summary.
             val withGuide = result.count { it.nowTitle != null }
@@ -251,6 +293,7 @@ data class ChannelWithGuide(
     val logoUrl: String,
     val channelNumber: Int?,
     val category: String,
+    val isFavourite: Boolean = false,
     val nowTitle: String?,
     val nowDescription: String?,
     val nowStartTime: Instant? = null,

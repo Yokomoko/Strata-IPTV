@@ -48,6 +48,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.strata.tv.data.db.ContinueWatchingEntity
+import com.strata.tv.data.db.WatchlistEntity
 import com.strata.tv.data.db.MovieEntity
 import com.strata.tv.data.db.MovieListItem
 import com.strata.tv.data.repo.SyncService
@@ -79,6 +80,7 @@ fun HomeScreen(
     val sync by viewModel.syncProgress.collectAsState()
     val genreRails by viewModel.genreRails.collectAsState()
     val providerRails by viewModel.providerRails.collectAsState()
+    val watchlist by viewModel.watchlist.collectAsState()
 
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
@@ -145,6 +147,24 @@ fun HomeScreen(
                                     artworkUrl = item.artworkUrl,
                                 ),
                             )
+                        },
+                    )
+                }
+            }
+
+            // -- Watchlist rail -----------------------------------------------
+            if (watchlist.isNotEmpty()) {
+                Rail(
+                    title = "My Watchlist",
+                    accentColor = StrataColors.AccentPrimary,
+                    items = watchlist,
+                ) { _, item ->
+                    PosterCard(
+                        title = item.title,
+                        subtitle = null,
+                        posterUrl = item.artworkUrl.takeIf { it.isNotBlank() },
+                        onClick = {
+                            onNavigate?.openMovieDetail(item.contentId)
                         },
                     )
                 }

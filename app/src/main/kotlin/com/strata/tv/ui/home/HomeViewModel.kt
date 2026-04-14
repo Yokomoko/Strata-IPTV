@@ -11,6 +11,8 @@ import com.strata.tv.data.db.MovieDao
 import com.strata.tv.data.db.MovieEntity
 import com.strata.tv.data.db.MovieListItem
 import com.strata.tv.data.db.SeriesDao
+import com.strata.tv.data.db.WatchlistDao
+import com.strata.tv.data.db.WatchlistEntity
 import com.strata.tv.data.repo.BootstrapRepository
 import com.strata.tv.data.repo.SyncService
 import com.strata.tv.data.tmdb.EnrichmentProgressTracker
@@ -47,6 +49,7 @@ class HomeViewModel @Inject constructor(
     private val seriesDao: SeriesDao,
     private val channelDao: ChannelDao,
     private val cwDao: ContinueWatchingDao,
+    private val watchlistDao: WatchlistDao,
 ) : ViewModel() {
 
     // -- Core state (lightweight flows) --------------------------------
@@ -79,6 +82,10 @@ class HomeViewModel @Inject constructor(
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = HomeUiState.Empty,
     )
+
+    /** Watchlist items for the Home rail. */
+    val watchlist: StateFlow<List<WatchlistEntity>> = watchlistDao.watchAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // -- Genre + provider rails (built in background) ------------------
 

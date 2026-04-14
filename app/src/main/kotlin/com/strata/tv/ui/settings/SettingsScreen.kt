@@ -1,5 +1,7 @@
 package com.strata.tv.ui.settings
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,12 +15,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.tv.material3.Card
-import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.ListItem
 import androidx.tv.material3.ListItemDefaults
@@ -55,11 +56,11 @@ fun SettingsScreen(
     ) {
         // ── Library ──────────────────────────────────────────────
         SectionHeader("Library")
-        Card(
-            onClick = {},
-            shape = CardDefaults.shape(shape = RoundedCornerShape(12.dp)),
-            colors = CardDefaults.colors(containerColor = StrataColors.SurfaceRaised),
-            modifier = Modifier.fillMaxWidth(),
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(StrataColors.SurfaceRaised),
         ) {
             ListItem(
                 selected = false,
@@ -89,11 +90,11 @@ fun SettingsScreen(
 
         // ── Playlist ─────────────────────────────────────────────
         SectionHeader("Playlist")
-        Card(
-            onClick = {},
-            shape = CardDefaults.shape(shape = RoundedCornerShape(12.dp)),
-            colors = CardDefaults.colors(containerColor = StrataColors.SurfaceRaised),
-            modifier = Modifier.fillMaxWidth(),
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(StrataColors.SurfaceRaised),
         ) {
             Column {
                 ListItem(
@@ -187,11 +188,11 @@ fun SettingsScreen(
 
         // ── About ────────────────────────────────────────────────
         SectionHeader("About")
-        Card(
-            onClick = {},
-            shape = CardDefaults.shape(shape = RoundedCornerShape(12.dp)),
-            colors = CardDefaults.colors(containerColor = StrataColors.SurfaceRaised),
-            modifier = Modifier.fillMaxWidth(),
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(StrataColors.SurfaceRaised),
         ) {
             ListItem(
                 selected = false,

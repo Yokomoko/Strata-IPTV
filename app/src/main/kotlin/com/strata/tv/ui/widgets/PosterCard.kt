@@ -1,7 +1,5 @@
 package com.strata.tv.ui.widgets
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -25,7 +23,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,35 +55,35 @@ fun PosterCard(
     onFocused: (() -> Unit)? = null,
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.06f else 1f,
-        animationSpec = tween(durationMillis = 200),
-        label = "card-scale",
-    )
 
     val shape = RoundedCornerShape(10.dp)
-    val borderMod = if (isFocused) {
-        Modifier
-            .shadow(12.dp, shape, ambientColor = StrataColors.FocusGlow, spotColor = StrataColors.FocusGlow)
-            .border(3.dp, StrataColors.FocusRing, shape)
-    } else {
-        Modifier
-    }
+
+    // Use padding to reserve space for the focus ring + shadow so the
+    // layout doesn't shift. The card renders at (cardSize - padding)
+    // and the ring/shadow fill the reserved space without clipping or
+    // overlapping neighbors.
+    val focusPad = 6.dp
 
     Card(
         onClick = onClick,
         modifier = modifier
-            .size(width = cardSize.width, height = cardSize.height)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .then(borderMod)
+            .size(
+                width = cardSize.width + focusPad * 2,
+                height = cardSize.height + focusPad * 2,
+            )
+            .padding(focusPad)
+            .then(
+                if (isFocused) Modifier
+                    .shadow(8.dp, shape, ambientColor = StrataColors.FocusGlow, spotColor = StrataColors.FocusGlow)
+                    .border(2.dp, StrataColors.FocusRing, shape)
+                else Modifier,
+            )
             .onFocusChanged { state ->
                 isFocused = state.isFocused
                 if (state.isFocused) onFocused?.invoke()
             },
         shape = CardDefaults.shape(shape = shape),
+        scale = CardDefaults.scale(focusedScale = 1.04f),
         colors = CardDefaults.colors(
             containerColor = StrataColors.SurfaceRaised,
             focusedContainerColor = StrataColors.SurfaceRaised,

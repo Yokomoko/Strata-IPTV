@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -159,6 +160,7 @@ class LiveViewModel @Inject constructor(
      * now/next refresh so the guide is never visibly stale (#18).
      */
     fun refreshOnResume() {
+        if (_channels.value.isEmpty()) return          // let init populate first
         viewModelScope.launch(Dispatchers.IO) {
             refreshNowNext()
         }
@@ -187,8 +189,7 @@ class LiveViewModel @Inject constructor(
      */
     private suspend fun refreshNowNext() {
         try {
-            val currentChannels = _channels.value
-            if (currentChannels.isEmpty()) {
+            if (_channels.value.isEmpty()) {
                 // No channels loaded yet — fall back to full refresh.
                 refreshGuide()
                 return
@@ -199,37 +200,40 @@ class LiveViewModel @Inject constructor(
             val programmes = programmeDao.inRange(now, windowEnd)
             val progByChannel = programmes.groupBy { it.channelId }
 
-            val updated = currentChannels.map { ch ->
-                val channelProgs = if (ch.xmltvChannelId != null) {
-                    progByChannel[ch.xmltvChannelId] ?: emptyList()
-                } else {
-                    emptyList()
+            // Use update{} for atomic read-modify-write so a concurrent
+            // refreshGuide() result is never accidentally overwritten.
+            _channels.update { current ->
+                current.map { ch ->
+                    val channelProgs = if (ch.xmltvChannelId != null) {
+                        progByChannel[ch.xmltvChannelId] ?: emptyList()
+                    } else {
+                        emptyList()
+                    }
+
+                    val nowProg = channelProgs
+                        .firstOrNull { it.startTime <= now && it.endTime > now }
+                    val nextProg = channelProgs
+                        .filter { it.startTime > now }
+                        .minByOrNull { it.startTime }
+
+                    ch.copy(
+                        nowTitle = nowProg?.title,
+                        nowDescription = nowProg?.description,
+                        nowStartTime = nowProg?.startTime,
+                        nowEndTime = nowProg?.endTime,
+                        nextTitle = nextProg?.title,
+                        nextStartTime = nextProg?.startTime,
+                        nextEndTime = nextProg?.endTime,
+                    )
                 }
-
-                val nowProg = channelProgs
-                    .firstOrNull { it.startTime <= now && it.endTime > now }
-                val nextProg = channelProgs
-                    .filter { it.startTime > now }
-                    .minByOrNull { it.startTime }
-
-                ch.copy(
-                    nowTitle = nowProg?.title,
-                    nowDescription = nowProg?.description,
-                    nowStartTime = nowProg?.startTime,
-                    nowEndTime = nowProg?.endTime,
-                    nextTitle = nextProg?.title,
-                    nextStartTime = nextProg?.startTime,
-                    nextEndTime = nextProg?.endTime,
-                )
             }
-
-            _channels.value = updated
             _lastRefreshed.value = now
 
-            val withGuide = updated.count { it.nowTitle != null }
+            val channels = _channels.value
+            val withGuide = channels.count { it.nowTitle != null }
             Log.d(
                 TAG,
-                "Now/next refresh: ${updated.size} channels, $withGuide with guide data",
+                "Now/next refresh: ${channels.size} channels, $withGuide with guide data",
             )
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to refresh now/next", e)

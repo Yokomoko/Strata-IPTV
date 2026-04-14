@@ -17,7 +17,10 @@ import com.strata.tv.domain.ChannelDeduplicator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
@@ -87,8 +90,10 @@ class PlayerViewModel @Inject constructor(
      */
     private var favouriteChannels: List<FavChannel> = emptyList()
 
-    /** Callback to inform the Shell/nav layer that a channel switch happened. */
-    var onChannelSwitch: ((streamUrl: String, title: String, artworkUrl: String) -> Unit)? = null
+    /** One-shot event to inform the Shell/nav layer that a channel switch happened. */
+    data class ChannelSwitchEvent(val streamUrl: String, val title: String, val artworkUrl: String)
+    private val _channelSwitchEvent = MutableSharedFlow<ChannelSwitchEvent>(extraBufferCapacity = 1)
+    val channelSwitchEvent: SharedFlow<ChannelSwitchEvent> = _channelSwitchEvent.asSharedFlow()
 
     // ── Player listener ──────────────────────────────────────────────
 
@@ -281,7 +286,7 @@ class PlayerViewModel @Inject constructor(
         player.prepare()
 
         // Notify the nav layer so PlayerArgs stays in sync.
-        onChannelSwitch?.invoke(target.streamUrl, target.displayName, target.logoUrl)
+        _channelSwitchEvent.tryEmit(ChannelSwitchEvent(target.streamUrl, target.displayName, target.logoUrl))
 
         showControls()
     }

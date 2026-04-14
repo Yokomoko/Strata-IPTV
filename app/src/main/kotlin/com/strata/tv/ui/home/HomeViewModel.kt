@@ -133,7 +133,7 @@ class HomeViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             val sourceId = bootstrap.ensureSource()
-            enrichmentTracker.reset()
+            enrichmentTracker.startSync()
             // Force a re-sync to pick up the episode-pattern classifier
             // fix and new channel categories.
             // TODO: remove forced sync once the DB has correct data.
@@ -148,7 +148,8 @@ class HomeViewModel @Inject constructor(
                 android.util.Log.w("HomeVM", "[DB] movies=${allContent.size} shows=${showContent.size} live=${liveContent.size} series=$seriesCount")
             }
 
-            // Kick off enrichment (continues the tracker from sync phase).
+            // Switch tracker to enrichment phase.
+            enrichmentTracker.startEnrichment(total = 0)
             val movieJob = launch(Dispatchers.IO) { runCatching { movieEnrichment.enrichBatch() } }
             val seriesJob = launch(Dispatchers.IO) { runCatching { seriesEnrichment.enrichBatch() } }
             launch {

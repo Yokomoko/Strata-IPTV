@@ -115,14 +115,13 @@ class SyncService @Inject constructor(
                                 ContentType.Show -> episodes.add(entry)
                             }
                         }
-                        progressTracker.advanceBy(result.entries.size)
+                        progressTracker.syncAdvance(result.entries.size)
                     }
                     is ParseResult.Progress -> {
                         _progress.value = Progress.Parsing(result.parsed, result.skipped)
                     }
                     is ParseResult.Complete -> {
-                        // Grand total = parsed items * 2 (sync half + enrichment half).
-                        progressTracker.setGrandTotal(result.totalParsed * 2)
+                        progressTracker.syncComplete(result.totalParsed)
                     }
                 }
             }

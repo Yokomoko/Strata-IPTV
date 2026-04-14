@@ -137,6 +137,32 @@ fun PlayerScreen(
                         viewModel.showControls()
                         true
                     }
+                    // Fav mode: Menu button toggles fav zapping (#11)
+                    KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_BOOKMARK -> {
+                        if (isLive) {
+                            viewModel.toggleFavMode()
+                            true
+                        } else false
+                    }
+                    // Fav mode: D-pad Up/Down zap through favourites (#11)
+                    KeyEvent.KEYCODE_DPAD_UP -> {
+                        if (state.favModeEnabled) {
+                            viewModel.zapFavourite(-1)
+                            true
+                        } else {
+                            viewModel.showControls()
+                            false
+                        }
+                    }
+                    KeyEvent.KEYCODE_DPAD_DOWN -> {
+                        if (state.favModeEnabled) {
+                            viewModel.zapFavourite(+1)
+                            true
+                        } else {
+                            viewModel.showControls()
+                            false
+                        }
+                    }
                     else -> {
                         viewModel.showControls()
                         false
@@ -244,7 +270,7 @@ fun PlayerScreen(
                         ),
                 )
 
-                // Top bar -- back + title + live badge
+                // Top bar -- back + title + FAV badge + live badge
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -259,15 +285,32 @@ fun PlayerScreen(
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(
-                        text = title,
+                        text = state.channelDisplayName ?: title,
                         color = Color.White,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         modifier = Modifier.weight(1f),
                     )
+                    // FAV badge (#11)
+                    if (state.favModeEnabled) {
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(StrataColors.AccentSecondary)
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                        ) {
+                            Text(
+                                text = "FAV",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
                     if (isLive) {
-                        Spacer(Modifier.width(12.dp))
+                        Spacer(Modifier.width(8.dp))
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))

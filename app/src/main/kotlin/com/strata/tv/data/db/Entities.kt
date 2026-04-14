@@ -114,6 +114,30 @@ data class MovieEntity(
     @ColumnInfo(name = "hidden") val hidden: Boolean = false,
 )
 
+/**
+ * Lightweight projection of [MovieEntity] for grid/rail list views.
+ * Omits heavy text columns (`overview`, `backdrop_url`, `cast`,
+ * `certification`) that cause CursorWindow overflow when the library
+ * has 2000+ movies.  Room maps this by column name — no @Entity needed.
+ */
+data class MovieListItem(
+    val id: Int,
+    @ColumnInfo(name = "content_id") val contentId: String,
+    @ColumnInfo(name = "movie_title") val movieTitle: String,
+    @ColumnInfo(name = "year") val year: Int?,
+    @ColumnInfo(name = "runtime") val runtime: Int?,
+    @ColumnInfo(name = "genre") val genre: String,
+    @ColumnInfo(name = "poster_url") val posterUrl: String,
+    @ColumnInfo(name = "resume_position_ms") val resumePositionMs: Long,
+    @ColumnInfo(name = "watched") val watched: Boolean,
+    @ColumnInfo(name = "is_favourite") val isFavourite: Boolean,
+    @ColumnInfo(name = "language") val language: String,
+    @ColumnInfo(name = "rating") val rating: Double,
+    @ColumnInfo(name = "provider") val provider: String,
+    @ColumnInfo(name = "tmdb_id") val tmdbId: Int,
+    @ColumnInfo(name = "hidden") val hidden: Boolean,
+)
+
 // ---------------------------------------------------------------------------
 // Series — TV series header, joined to episodes by `series_title`.
 // ---------------------------------------------------------------------------

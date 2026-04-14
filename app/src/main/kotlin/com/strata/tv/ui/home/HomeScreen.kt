@@ -45,7 +45,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.strata.tv.data.db.ContinueWatchingEntity
-import com.strata.tv.data.db.MovieEntity
+import com.strata.tv.data.db.MovieListItem
 import com.strata.tv.data.repo.SyncService
 import com.strata.tv.ui.nav.AppNavState
 import com.strata.tv.ui.theme.StrataColors
@@ -156,9 +156,9 @@ fun HomeScreen(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun HeroCarousel(
-    movies: List<MovieEntity>,
+    movies: List<MovieListItem>,
     onFeaturedChanged: (Featured) -> Unit,
-    onMovieClick: (MovieEntity) -> Unit,
+    onMovieClick: (MovieListItem) -> Unit,
 ) {
     if (movies.isEmpty()) {
         // Fallback: static brand hero
@@ -356,7 +356,7 @@ private fun StaticHero() {
 // Helper conversions + cards
 // =====================================================================
 
-private fun MovieEntity.toFeatured(): Featured = Featured(
+private fun MovieListItem.toFeatured(): Featured = Featured(
     key = "movie:$contentId",
     title = movieTitle,
     backdropUrl = posterUrl.takeIf { it.isNotBlank() },
@@ -397,7 +397,7 @@ private fun SyncBanner(progress: SyncService.Progress) {
 
 @Composable
 private fun MovieCard(
-    movie: MovieEntity,
+    movie: MovieListItem,
     onFocused: () -> Unit = {},
     onClick: () -> Unit = {},
 ) {

@@ -28,7 +28,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
-import com.strata.tv.data.db.MovieEntity
+import com.strata.tv.data.db.MovieListItem
 import com.strata.tv.ui.nav.AppNavState
 import com.strata.tv.ui.theme.StrataColors
 import com.strata.tv.ui.widgets.PosterCard
@@ -123,7 +123,7 @@ fun MoviesScreen(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun MovieHero(
-    movie: MovieEntity,
+    movie: MovieListItem,
     onClick: () -> Unit,
 ) {
     Box(

@@ -86,6 +86,21 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE hidden = 0 ORDER BY year DESC")
     fun watchAllByYear(): Flow<List<MovieEntity>>
 
+    /**
+     * Lightweight projection for grid/rail list views.  Omits heavy text
+     * columns (overview, cast) that cause CursorWindow overflow when the
+     * library has 2000+ movies.
+     */
+    @Query(
+        """
+        SELECT id, content_id, movie_title, year, runtime, genre,
+               poster_url, resume_position_ms, watched, is_favourite,
+               language, rating, provider, tmdb_id, hidden
+        FROM movies WHERE hidden = 0 ORDER BY year DESC
+        """,
+    )
+    fun watchAllForList(): Flow<List<MovieListItem>>
+
     @Query(
         """
         SELECT * FROM movies

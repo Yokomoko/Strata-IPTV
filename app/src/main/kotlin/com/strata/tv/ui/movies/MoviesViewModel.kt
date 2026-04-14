@@ -2,9 +2,8 @@ package com.strata.tv.ui.movies
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.strata.tv.data.db.ContentDao
 import com.strata.tv.data.db.MovieDao
-import com.strata.tv.data.db.MovieEntity
+import com.strata.tv.data.db.MovieListItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -15,15 +14,17 @@ import javax.inject.Inject
 /**
  * Drives [MoviesScreen].
  *
- * Streams all visible movies grouped by genre for the rail layout,
- * plus a "featured" hero item (the newest movie with a poster).
+ * Uses the lightweight [MovieListItem] projection instead of the full
+ * [MovieEntity] to avoid CursorWindow overflow on large libraries
+ * (2000+ movies with long overview/cast text would exceed the 2 MB
+ * window).  Detail screens load the full entity by contentId.
  */
 @HiltViewModel
 class MoviesViewModel @Inject constructor(
     private val movieDao: MovieDao,
 ) : ViewModel() {
 
-    val state: StateFlow<MoviesUiState> = movieDao.watchAllByYear()
+    val state: StateFlow<MoviesUiState> = movieDao.watchAllForList()
         .map { allMovies ->
             val hero = allMovies.firstOrNull { it.posterUrl.isNotBlank() }
             val genreRails = buildGenreRails(allMovies)
@@ -39,8 +40,8 @@ class MoviesViewModel @Inject constructor(
             initialValue = MoviesUiState.Empty,
         )
 
-    private fun buildGenreRails(movies: List<MovieEntity>): List<GenreRail> {
-        val byGenre = mutableMapOf<String, MutableList<MovieEntity>>()
+    private fun buildGenreRails(movies: List<MovieListItem>): List<GenreRail> {
+        val byGenre = mutableMapOf<String, MutableList<MovieListItem>>()
         for (movie in movies) {
             val genres = movie.genre.split(",", "|", "/")
                 .map { it.trim() }
@@ -48,7 +49,6 @@ class MoviesViewModel @Inject constructor(
             if (genres.isEmpty()) {
                 byGenre.getOrPut("Uncategorised") { mutableListOf() }.add(movie)
             } else {
-                // Add to first genre only to avoid duplication across rails
                 val primary = genres.first()
                 byGenre.getOrPut(primary) { mutableListOf() }.add(movie)
             }
@@ -63,12 +63,12 @@ class MoviesViewModel @Inject constructor(
 
 data class GenreRail(
     val genre: String,
-    val movies: List<MovieEntity>,
+    val movies: List<MovieListItem>,
 )
 
 data class MoviesUiState(
-    val hero: MovieEntity?,
-    val allMovies: List<MovieEntity>,
+    val hero: MovieListItem?,
+    val allMovies: List<MovieListItem>,
     val genreRails: List<GenreRail>,
 ) {
     companion object {

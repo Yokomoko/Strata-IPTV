@@ -7,7 +7,7 @@ import com.strata.tv.data.db.ChannelDao
 import com.strata.tv.data.db.ContinueWatchingDao
 import com.strata.tv.data.db.ContinueWatchingEntity
 import com.strata.tv.data.db.MovieDao
-import com.strata.tv.data.db.MovieEntity
+import com.strata.tv.data.db.MovieListItem
 import com.strata.tv.data.db.SeriesDao
 import com.strata.tv.data.repo.BootstrapRepository
 import com.strata.tv.data.repo.SyncService
@@ -51,7 +51,7 @@ class HomeViewModel @Inject constructor(
         seriesDao.watchCount(),
         channelDao.watchAll(),
         cwDao.watchAll(),
-        movieDao.watchAllByYear(),
+        movieDao.watchAllForList(),
     ) { movies, series, channels, cw, recentMovies ->
         HomeUiState(
             channelCount = channels.size,
@@ -93,7 +93,7 @@ data class HomeUiState(
     val movieCount: Int,
     val seriesCount: Int,
     val continueWatching: List<ContinueWatchingEntity>,
-    val recentMovies: List<MovieEntity>,
+    val recentMovies: List<MovieListItem>,
 ) {
     companion object {
         val Empty = HomeUiState(

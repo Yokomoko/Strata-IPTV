@@ -63,7 +63,10 @@ class SearchViewModel @Inject constructor(
     private suspend fun executeSearch(query: String): SearchUiState {
         if (query.length < 2) return SearchUiState.Empty
 
-        val raw = contentDao.searchRaw(ContentDao.buildSearchQuery(query))
+        val builtQuery = ContentDao.buildSearchQuery(query)
+        android.util.Log.w("Search", "[Search] SQL: ${builtQuery.sql}")
+        val raw = contentDao.searchRaw(builtQuery)
+        android.util.Log.w("Search", "[Search] query='$query' → ${raw.size} candidates")
         if (raw.isEmpty()) return SearchUiState.NoResults
 
         // Score + filter (drop anything that scores 0).

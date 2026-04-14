@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -251,25 +252,27 @@ private fun CategoryChips(
         items(items = categories, key = { it }) { category ->
             val isSelected = category == selected
             val shape = RoundedCornerShape(20.dp)
+            var chipFocused by remember { mutableStateOf(false) }
             Surface(
                 onClick = { onSelected(category) },
                 shape = ClickableSurfaceDefaults.shape(shape = shape),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = if (isSelected) StrataColors.AccentPrimary else StrataColors.SurfaceRaised,
-                    focusedContainerColor = StrataColors.AccentPrimaryBright,
+                    focusedContainerColor = StrataColors.AccentPrimary,
                 ),
                 modifier = Modifier
                     .height(36.dp)
+                    .onFocusChanged { chipFocused = it.isFocused }
                     .then(
-                        if (!isSelected) Modifier.border(1.dp, StrataColors.SurfaceFloat, shape)
+                        if (!isSelected && !chipFocused) Modifier.border(1.dp, StrataColors.SurfaceFloat, shape)
                         else Modifier,
                     ),
             ) {
                 Text(
                     text = category,
-                    color = if (isSelected) Color.White else StrataColors.TextSecondary,
+                    color = if (isSelected || chipFocused) Color.White else StrataColors.TextSecondary,
                     fontSize = 13.sp,
-                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                    fontWeight = if (isSelected || chipFocused) FontWeight.SemiBold else FontWeight.Normal,
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
                 )
             }

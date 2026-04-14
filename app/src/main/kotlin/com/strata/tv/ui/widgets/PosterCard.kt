@@ -128,7 +128,7 @@ fun PosterCard(
                             ),
                         ),
                     )
-                    .padding(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 12.dp),
+                    .padding(start = 10.dp, end = 10.dp, top = 18.dp, bottom = 14.dp),
             ) {
                 Text(
                     text = title,

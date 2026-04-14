@@ -115,7 +115,7 @@ interface MovieDao {
     )
     fun watchAllForList(): Flow<List<MovieListItem>>
 
-    /** Recent movies with posters for the Home screen hero + rails. */
+    /** Recent movies with posters for the Home screen rails. */
     @Query(
         """
         SELECT id, content_id, movie_title, year, runtime, genre,
@@ -128,6 +128,18 @@ interface MovieDao {
         """,
     )
     fun watchRecentWithPosters(limit: Int = 20): Flow<List<MovieListItem>>
+
+    /** Recent movies with backdrops for the Home hero carousel (full entity for overview/cast). */
+    @Query(
+        """
+        SELECT * FROM movies
+        WHERE hidden = 0 AND backdrop_url != '' AND poster_url != ''
+          AND (year IS NULL OR year BETWEEN 2025 AND 2030)
+        ORDER BY rating DESC
+        LIMIT :limit
+        """,
+    )
+    fun watchHeroCandidates(limit: Int = 5): Flow<List<MovieEntity>>
 
     /** Movies with posters for a specific genre — for Home genre rails. */
     @Query(

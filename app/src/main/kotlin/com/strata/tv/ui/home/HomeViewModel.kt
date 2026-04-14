@@ -8,6 +8,7 @@ import com.strata.tv.data.db.ChannelDao
 import com.strata.tv.data.db.ContinueWatchingDao
 import com.strata.tv.data.db.ContinueWatchingEntity
 import com.strata.tv.data.db.MovieDao
+import com.strata.tv.data.db.MovieEntity
 import com.strata.tv.data.db.MovieListItem
 import com.strata.tv.data.db.SeriesDao
 import com.strata.tv.data.repo.BootstrapRepository
@@ -50,19 +51,28 @@ class HomeViewModel @Inject constructor(
 
     // -- Core state (lightweight flows) --------------------------------
 
+    @Suppress("UNCHECKED_CAST")
     val state: StateFlow<HomeUiState> = combine(
         movieDao.watchVisibleCount(),
         seriesDao.watchCount(),
         channelDao.watchAll(),
         cwDao.watchAll(),
         movieDao.watchRecentWithPosters(limit = 20),
-    ) { movies, series, channels, cw, recentMovies ->
+        movieDao.watchHeroCandidates(limit = 5),
+    ) { values ->
+        val movies = values[0] as Int
+        val series = values[1] as Int
+        val channels = values[2] as List<*>
+        val cw = values[3] as List<ContinueWatchingEntity>
+        val recentMovies = values[4] as List<MovieListItem>
+        val heroCandidates = values[5] as List<MovieEntity>
         HomeUiState(
             channelCount = channels.size,
             movieCount = movies,
             seriesCount = series,
             continueWatching = cw,
             recentMovies = recentMovies,
+            heroCandidates = heroCandidates,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -149,6 +159,7 @@ data class HomeUiState(
     val seriesCount: Int,
     val continueWatching: List<ContinueWatchingEntity>,
     val recentMovies: List<MovieListItem>,
+    val heroCandidates: List<MovieEntity> = emptyList(),
 ) {
     companion object {
         val Empty = HomeUiState(
@@ -157,6 +168,7 @@ data class HomeUiState(
             seriesCount = 0,
             continueWatching = emptyList(),
             recentMovies = emptyList(),
+            heroCandidates = emptyList(),
         )
     }
 }

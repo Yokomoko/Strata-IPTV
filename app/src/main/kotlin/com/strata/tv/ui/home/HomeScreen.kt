@@ -46,6 +46,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.strata.tv.data.db.ContinueWatchingEntity
+import com.strata.tv.data.db.MovieEntity
 import com.strata.tv.data.db.MovieListItem
 import com.strata.tv.data.repo.SyncService
 import com.strata.tv.ui.nav.AppNavState
@@ -84,11 +85,12 @@ fun HomeScreen(
             .background(StrataColors.SurfaceVoid)
             .verticalScroll(rememberScrollState()),
     ) {
-            // -- Hero carousel -------------------------------------------
+            // -- Hero carousel (uses backdrops when available) ----------
             HeroCarousel(
-                movies = state.recentMovies.take(5),
-                onMovieClick = { movie ->
-                    onNavigate?.openMovieDetail(movie.contentId)
+                heroes = state.heroCandidates,
+                fallbackMovies = state.recentMovies.take(5),
+                onMovieClick = { contentId ->
+                    onNavigate?.openMovieDetail(contentId)
                 },
             )
 
@@ -176,28 +178,62 @@ fun HomeScreen(
 // Hero Carousel -- auto-cycling through featured movies
 // =====================================================================
 
+/**
+ * Hero carousel — uses landscape TMDB backdrops when available (from
+ * [heroes]), falling back to poster-based items from [fallbackMovies].
+ * Shows title, year, genre, and overview when the full entity is available.
+ */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun HeroCarousel(
-    movies: List<MovieListItem>,
-    onMovieClick: (MovieListItem) -> Unit,
+    heroes: List<MovieEntity>,
+    fallbackMovies: List<MovieListItem>,
+    onMovieClick: (String) -> Unit,
 ) {
-    if (movies.isEmpty()) {
-        // Fallback: static brand hero
+    // Prefer heroes (have backdrops), fall back to recent posters.
+    val useHeroes = heroes.isNotEmpty()
+    val count = if (useHeroes) heroes.size else fallbackMovies.size
+
+    if (count == 0) {
         StaticHero()
         return
     }
 
     var currentIndex by remember { mutableIntStateOf(0) }
     var isPaused by remember { mutableStateOf(false) }
-    val movie = movies[currentIndex]
 
     // Auto-cycle every 6 seconds, pause on focus
-    LaunchedEffect(currentIndex, isPaused) {
-        if (!isPaused && movies.size > 1) {
+    LaunchedEffect(currentIndex, isPaused, count) {
+        if (!isPaused && count > 1) {
             delay(6_000)
-            currentIndex = (currentIndex + 1) % movies.size
+            currentIndex = (currentIndex + 1) % count
         }
+    }
+
+    // Derive display data for the current index.
+    val title: String
+    val year: Int?
+    val genre: String
+    val overview: String
+    val imageUrl: String?
+    val contentId: String
+
+    if (useHeroes) {
+        val h = heroes[currentIndex]
+        title = h.movieTitle
+        year = h.year
+        genre = h.genre
+        overview = h.overview
+        imageUrl = h.backdropUrl.takeIf { it.isNotBlank() } ?: h.posterUrl.takeIf { it.isNotBlank() }
+        contentId = h.contentId
+    } else {
+        val m = fallbackMovies[currentIndex]
+        title = m.movieTitle
+        year = m.year
+        genre = m.genre
+        overview = ""
+        imageUrl = m.posterUrl.takeIf { it.isNotBlank() }
+        contentId = m.contentId
     }
 
     Box(
@@ -214,11 +250,16 @@ private fun HeroCarousel(
             },
             label = "hero-carousel",
         ) { index ->
-            val m = movies[index]
-            val backdropUrl = m.posterUrl.takeIf { it.isNotBlank() }
-            if (backdropUrl != null) {
+            val url = if (useHeroes) {
+                heroes.getOrNull(index)?.let {
+                    it.backdropUrl.takeIf { u -> u.isNotBlank() } ?: it.posterUrl.takeIf { u -> u.isNotBlank() }
+                }
+            } else {
+                fallbackMovies.getOrNull(index)?.posterUrl?.takeIf { it.isNotBlank() }
+            }
+            if (url != null) {
                 AsyncImage(
-                    model = backdropUrl,
+                    model = url,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
@@ -236,7 +277,7 @@ private fun HeroCarousel(
             }
         }
 
-        // Gradient overlay
+        // Gradient overlays
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -251,8 +292,6 @@ private fun HeroCarousel(
                     ),
                 ),
         )
-
-        // Left-side gradient
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -271,56 +310,68 @@ private fun HeroCarousel(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 32.dp, bottom = 56.dp, end = 160.dp),
+                .padding(start = 32.dp, bottom = 56.dp, end = 200.dp),
         ) {
             Text(
-                text = movie.movieTitle,
+                text = title,
                 color = Color.White,
-                fontSize = 40.sp,
+                fontSize = 36.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                lineHeight = 46.sp,
+                lineHeight = 42.sp,
                 letterSpacing = (-0.5).sp,
             )
-            if (movie.year != null || movie.genre.isNotBlank()) {
+            if (year != null || genre.isNotBlank()) {
                 Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (movie.year != null) {
+                    if (year != null) {
                         Text(
-                            text = movie.year.toString(),
+                            text = year.toString(),
                             color = StrataColors.TextSecondary,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
                         )
                     }
-                    if (movie.year != null && movie.genre.isNotBlank()) {
+                    if (year != null && genre.isNotBlank()) {
                         Text(
                             text = "  \u00B7  ",
                             color = StrataColors.TextTertiary,
                             fontSize = 14.sp,
                         )
                     }
-                    if (movie.genre.isNotBlank()) {
+                    if (genre.isNotBlank()) {
                         Text(
-                            text = movie.genre.split(",", "|").take(2).joinToString(", ") { it.trim() },
+                            text = genre.split(",", "|").take(2).joinToString(", ") { it.trim() },
                             color = StrataColors.TextSecondary,
                             fontSize = 14.sp,
                         )
                     }
                 }
             }
+            // Overview (only from full entity heroes)
+            if (overview.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = overview,
+                    color = StrataColors.TextSecondary,
+                    fontSize = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 18.sp,
+                )
+            }
         }
 
         // Carousel dots
-        if (movies.size > 1) {
+        if (count > 1) {
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                movies.forEachIndexed { index, _ ->
+                repeat(count) { index ->
                     Box(
                         modifier = Modifier
                             .size(if (index == currentIndex) 8.dp else 6.dp)

@@ -5,8 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -16,50 +14,83 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.unit.dp
 import com.strata.tv.ui.home.HomeScreen
+import com.strata.tv.ui.live.LiveScreen
+import com.strata.tv.ui.movies.MovieDetailScreen
+import com.strata.tv.ui.movies.MoviesScreen
+import com.strata.tv.ui.player.PlayerScreen
+import com.strata.tv.ui.search.SearchScreen
+import com.strata.tv.ui.shows.ShowDetailScreen
+import com.strata.tv.ui.shows.ShowsScreen
 import com.strata.tv.ui.theme.StrataColors
 
 /**
- * Top-level shell — renders the persistent sidebar on the left and
- * the currently-selected destination's screen on the right.
+ * Top-level shell -- sidebar + content area + overlay layers.
  *
- * Focus model:
- * - On launch, the sidebar autofocuses (LaunchedEffect on first frame).
- * - D-pad Right from the sidebar enters the content area via the
- *   sidebar's exit-direction focus property.
- * - The back button toggles focus between sidebar and content
- *   without popping the navigator — same UX rule v1 ended up with
- *   after a lot of iteration.  See `lib/app/shell_scaffold.dart`
- *   in the Flutter app for the full back-handler logic.
+ * Phase 9: now wires real screens for all destinations, plus
+ * movie/show detail overlays and the player overlay.
  */
 @Composable
 fun Shell(
     nav: AppNavState = rememberAppNavState(),
 ) {
-    // Track which zone last had focus so the back-button toggle
-    // knows whether to send focus to sidebar or content.
     var sidebarHasFocus by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
-        // First-frame autofocus on the sidebar — sets the user's
-        // entry point on app launch.
         runCatching { nav.sidebarRequester.requestFocus() }
     }
 
+    // -- Back handler: detail overlay -> sidebar/content toggle -------
     BackHandler {
-        if (sidebarHasFocus) {
-            // Sidebar has focus → push focus into the content area.
-            // (Same gesture as Fire Stick remote's Back when the
-            // user is parked on the sidebar — they want to keep
-            // watching what's shown, not exit.)
-            runCatching { nav.contentRequester.requestFocus() }
-        } else {
-            // Content has focus → bounce back to sidebar.
-            runCatching { nav.sidebarRequester.requestFocus() }
+        if (!nav.navigateBack()) {
+            if (sidebarHasFocus) {
+                runCatching { nav.contentRequester.requestFocus() }
+            } else {
+                runCatching { nav.sidebarRequester.requestFocus() }
+            }
         }
     }
 
+    // -- Player overlay (highest z-order) ----------------------------
+    val playerArgs = nav.playerArgs
+    if (playerArgs != null) {
+        PlayerScreen(
+            streamUrl = playerArgs.streamUrl,
+            title = playerArgs.title,
+            isLive = playerArgs.isLive,
+            resumePositionMs = playerArgs.resumePositionMs,
+            contentType = playerArgs.contentType,
+            artworkUrl = playerArgs.artworkUrl,
+            onExit = { nav.closePlayer() },
+        )
+        return // Player is full-screen, nothing else renders.
+    }
+
+    // -- Detail overlay (sits on top of content) ---------------------
+    val detailRoute = nav.detailRoute
+    if (detailRoute != null) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(StrataColors.SurfaceVoid),
+        ) {
+            when (detailRoute) {
+                is DetailRoute.Movie -> MovieDetailScreen(
+                    contentId = detailRoute.contentId,
+                    onBack = { nav.closeDetail() },
+                    onPlay = { args -> nav.openPlayer(args) },
+                )
+                is DetailRoute.Show -> ShowDetailScreen(
+                    seriesTitle = detailRoute.seriesTitle,
+                    onBack = { nav.closeDetail() },
+                    onPlay = { args -> nav.openPlayer(args) },
+                )
+            }
+        }
+        return // Detail is full-screen over the shell.
+    }
+
+    // -- Normal shell: sidebar + content -----------------------------
     Row(
         modifier = Modifier
             .fillMaxSize()
@@ -79,36 +110,20 @@ fun Shell(
                 .onFocusChanged { if (it.hasFocus) sidebarHasFocus = false },
         ) {
             when (nav.current) {
-                Destination.Home -> HomeScreen()
-                Destination.Live -> Placeholder("TV Guide")
-                Destination.Movies -> Placeholder("Movies")
-                Destination.Shows -> Placeholder("Box Sets")
-                Destination.Search -> Placeholder("Search")
-                Destination.Settings -> Placeholder("Settings")
+                Destination.Home -> HomeScreen(onNavigate = nav)
+                Destination.Live -> LiveScreen(onNavigate = nav)
+                Destination.Movies -> MoviesScreen(onNavigate = nav)
+                Destination.Shows -> ShowsScreen(onNavigate = nav)
+                Destination.Search -> SearchScreen(onNavigate = nav)
+                Destination.Settings -> SettingsPlaceholder()
             }
         }
     }
 }
 
-/** Temporary placeholder for screens not yet built. */
+/** Temporary placeholder for Settings. */
 @Composable
-private fun Placeholder(label: String) {
-    androidx.compose.foundation.layout.Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(StrataColors.SurfaceVoid),
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
-        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-    ) {
-        androidx.tv.material3.Text(
-            text = label,
-            color = StrataColors.TextSecondary,
-            fontSize = androidx.compose.ui.unit.TextUnit.Unspecified,
-        )
-        androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp).width(8.dp))
-        androidx.tv.material3.Text(
-            text = "Not built yet — coming in a later phase.",
-            color = StrataColors.TextTertiary,
-        )
-    }
+private fun SettingsPlaceholder() {
+    // Settings screen exists in ui/settings/ but does not need Phase 9 treatment.
+    com.strata.tv.ui.settings.SettingsScreen()
 }

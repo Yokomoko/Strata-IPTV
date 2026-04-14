@@ -1,5 +1,10 @@
 package com.strata.tv.ui.home
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,11 +18,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -27,45 +35,45 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import coil3.compose.AsyncImage
 import com.strata.tv.data.db.ContinueWatchingEntity
 import com.strata.tv.data.db.MovieEntity
 import com.strata.tv.data.repo.SyncService
+import com.strata.tv.ui.nav.AppNavState
 import com.strata.tv.ui.theme.StrataColors
 import com.strata.tv.ui.widgets.Featured
 import com.strata.tv.ui.widgets.ImmersiveBackdrop
 import com.strata.tv.ui.widgets.PosterCard
 import com.strata.tv.ui.widgets.Rail
+import com.strata.tv.ui.widgets.ShimmerRail
 import com.strata.tv.ui.widgets.rememberFeaturedState
+import kotlinx.coroutines.delay
 
 /**
- * Home screen — Netflix-style vertical stack of horizontal rails.
+ * Home screen -- Netflix-style hero carousel + horizontal rails.
  *
- * Connected to the real [HomeViewModel] in this phase, so the rails
- * reflect what's in Room.  On first launch the ViewModel kicks off a
- * one-shot M3U sync; until that completes the rails will be empty
- * and the [SyncBanner] shows progress at the top.
+ * Phase 9: full carousel hero auto-cycling through up to 5 featured
+ * items, upgraded rail typography, shimmer loaders while data loads.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun HomeScreen(
     modifier: Modifier = Modifier,
+    onNavigate: AppNavState? = null,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
     val sync by viewModel.syncProgress.collectAsState()
     val featured = rememberFeaturedState()
 
-    // The screen is a Box stack: backdrop at the back, scrolling
-    // content overlaid on top.  As cards gain focus they push the
-    // featured-item state, which the backdrop animates to.
     Box(modifier = modifier.fillMaxSize()) {
         ImmersiveBackdrop(state = featured)
 
@@ -74,14 +82,23 @@ fun HomeScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState()),
         ) {
-            Hero(
-                channels = state.channelCount,
-                movies = state.movieCount,
-                series = state.seriesCount,
+            // -- Hero carousel -------------------------------------------
+            HeroCarousel(
+                movies = state.recentMovies.take(5),
+                onFeaturedChanged = { featured.setFeatured(it) },
+                onMovieClick = { movie ->
+                    onNavigate?.openMovieDetail(movie.contentId)
+                },
             )
+
             SyncBanner(sync)
 
             Spacer(Modifier.height(8.dp))
+
+            // -- Rails ---------------------------------------------------
+            val isLoading = state.recentMovies.isEmpty() &&
+                sync != SyncService.Progress.Idle &&
+                sync !is SyncService.Progress.Done
 
             if (state.continueWatching.isNotEmpty()) {
                 Rail(
@@ -89,7 +106,22 @@ fun HomeScreen(
                     accentColor = StrataColors.AccentSecondary,
                     items = state.continueWatching,
                 ) { _, item ->
-                    CwCard(item, onFocused = { featured.setFeatured(item.toFeatured()) })
+                    CwCard(
+                        item = item,
+                        onFocused = { featured.setFeatured(item.toFeatured()) },
+                        onClick = {
+                            onNavigate?.openPlayer(
+                                com.strata.tv.ui.nav.PlayerArgs(
+                                    streamUrl = item.streamUrl,
+                                    title = item.contentId,
+                                    isLive = item.contentType == "live",
+                                    resumePositionMs = item.resumePositionMs,
+                                    contentType = item.contentType,
+                                    artworkUrl = item.artworkUrl,
+                                ),
+                            )
+                        },
+                    )
                 }
             }
 
@@ -99,19 +131,239 @@ fun HomeScreen(
                     accentColor = StrataColors.AccentPrimary,
                     items = state.recentMovies,
                 ) { _, item ->
-                    MovieCard(item, onFocused = { featured.setFeatured(item.toFeatured()) })
+                    MovieCard(
+                        movie = item,
+                        onFocused = { featured.setFeatured(item.toFeatured()) },
+                        onClick = {
+                            onNavigate?.openMovieDetail(item.contentId)
+                        },
+                    )
                 }
+            } else if (isLoading) {
+                ShimmerRail()
+                ShimmerRail()
             }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(48.dp))
         }
     }
 }
+
+// =====================================================================
+// Hero Carousel -- auto-cycling through featured movies
+// =====================================================================
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun HeroCarousel(
+    movies: List<MovieEntity>,
+    onFeaturedChanged: (Featured) -> Unit,
+    onMovieClick: (MovieEntity) -> Unit,
+) {
+    if (movies.isEmpty()) {
+        // Fallback: static brand hero
+        StaticHero()
+        return
+    }
+
+    var currentIndex by remember { mutableIntStateOf(0) }
+    var isPaused by remember { mutableStateOf(false) }
+    val movie = movies[currentIndex]
+
+    // Auto-cycle every 6 seconds, pause on focus
+    LaunchedEffect(currentIndex, isPaused) {
+        if (!isPaused && movies.size > 1) {
+            delay(6_000)
+            currentIndex = (currentIndex + 1) % movies.size
+        }
+    }
+
+    // Push featured state
+    LaunchedEffect(currentIndex) {
+        onFeaturedChanged(movie.toFeatured())
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(340.dp)
+            .onFocusChanged { isPaused = it.hasFocus },
+    ) {
+        // Backdrop image with crossfade
+        AnimatedContent(
+            targetState = currentIndex,
+            transitionSpec = {
+                fadeIn(tween(800)) togetherWith fadeOut(tween(800))
+            },
+            label = "hero-carousel",
+        ) { index ->
+            val m = movies[index]
+            val backdropUrl = m.posterUrl.takeIf { it.isNotBlank() }
+            if (backdropUrl != null) {
+                AsyncImage(
+                    model = backdropUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(Color(0xFF1E1040), Color(0xFF150D30)),
+                            ),
+                        ),
+                )
+            }
+        }
+
+        // Gradient overlay
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.0f to Color.Black.copy(alpha = 0.1f),
+                            0.4f to Color.Black.copy(alpha = 0.4f),
+                            0.7f to Color.Black.copy(alpha = 0.7f),
+                            1.0f to StrataColors.SurfaceVoid,
+                        ),
+                    ),
+                ),
+        )
+
+        // Left-side gradient
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        colorStops = arrayOf(
+                            0.0f to Color.Black.copy(alpha = 0.6f),
+                            0.5f to Color.Black.copy(alpha = 0.1f),
+                            1.0f to Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+
+        // Hero text overlay
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 32.dp, bottom = 24.dp, end = 160.dp),
+        ) {
+            Text(
+                text = movie.movieTitle,
+                color = Color.White,
+                fontSize = 40.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 46.sp,
+                letterSpacing = (-0.5).sp,
+            )
+            if (movie.year != null || movie.genre.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (movie.year != null) {
+                        Text(
+                            text = movie.year.toString(),
+                            color = StrataColors.TextSecondary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                    if (movie.year != null && movie.genre.isNotBlank()) {
+                        Text(
+                            text = "  \u00B7  ",
+                            color = StrataColors.TextTertiary,
+                            fontSize = 14.sp,
+                        )
+                    }
+                    if (movie.genre.isNotBlank()) {
+                        Text(
+                            text = movie.genre.split(",", "|").take(2).joinToString(", ") { it.trim() },
+                            color = StrataColors.TextSecondary,
+                            fontSize = 14.sp,
+                        )
+                    }
+                }
+            }
+        }
+
+        // Carousel dots
+        if (movies.size > 1) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                movies.forEachIndexed { index, _ ->
+                    Box(
+                        modifier = Modifier
+                            .size(if (index == currentIndex) 8.dp else 6.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (index == currentIndex) StrataColors.AccentPrimary
+                                else StrataColors.TextTertiary.copy(alpha = 0.4f),
+                            ),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun StaticHero() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(200.dp)
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(Color(0xFF1E1040), Color(0xFF150D30), StrataColors.SurfaceVoid),
+                ),
+            ),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 32.dp, vertical = 32.dp),
+        ) {
+            Text(
+                text = "Strata",
+                color = StrataColors.AccentPrimary,
+                fontSize = 44.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-1).sp,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Your premium streaming library",
+                color = StrataColors.TextSecondary,
+                fontSize = 16.sp,
+            )
+        }
+    }
+}
+
+// =====================================================================
+// Helper conversions + cards
+// =====================================================================
 
 private fun MovieEntity.toFeatured(): Featured = Featured(
     key = "movie:$contentId",
     title = movieTitle,
     backdropUrl = posterUrl.takeIf { it.isNotBlank() },
+    subtitle = listOfNotNull(
+        year?.toString(),
+        genre.takeIf { it.isNotBlank() }?.split(",", "|")?.firstOrNull()?.trim(),
+    ).joinToString(" \u00B7 ").takeIf { it.isNotBlank() },
 )
 
 private fun ContinueWatchingEntity.toFeatured(): Featured = Featured(
@@ -120,58 +372,15 @@ private fun ContinueWatchingEntity.toFeatured(): Featured = Featured(
     backdropUrl = artworkUrl.takeIf { it.isNotBlank() },
 )
 
-@Composable
-private fun Hero(channels: Int, movies: Int, series: Int) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(160.dp)
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFF1E1040),
-                        Color(0xFF150D30),
-                        StrataColors.SurfaceVoid,
-                    ),
-                ),
-            ),
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 32.dp, vertical = 24.dp),
-        ) {
-            Text(
-                text = "Strata",
-                color = StrataColors.AccentPrimary,
-                fontSize = 36.sp,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                Stat("$channels", "Channels", StrataColors.StatusLive)
-                Stat("$movies", "Movies", StrataColors.AccentPrimary)
-                Stat("$series", "Box Sets", StrataColors.AccentSecondary)
-            }
-        }
-    }
-}
-
-@Composable
-private fun Stat(value: String, label: String, color: Color) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(text = value, color = color, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.width(4.dp))
-        Text(text = label, color = StrataColors.TextTertiary, fontSize = 11.sp)
-    }
-}
-
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun SyncBanner(progress: SyncService.Progress) {
     val msg = when (progress) {
         SyncService.Progress.Idle, is SyncService.Progress.Done -> return
-        is SyncService.Progress.Downloading -> "Downloading playlist…"
+        is SyncService.Progress.Downloading -> "Downloading playlist\u2026"
         is SyncService.Progress.Parsing ->
-            "Parsing playlist… ${progress.parsed} entries"
-        SyncService.Progress.PostProcessing -> "Sorting + writing to library…"
+            "Parsing playlist\u2026 ${progress.parsed} entries"
+        SyncService.Progress.PostProcessing -> "Sorting + writing to library\u2026"
         is SyncService.Progress.Error -> "Sync failed: ${progress.message}"
     }
     Box(
@@ -187,35 +396,34 @@ private fun SyncBanner(progress: SyncService.Progress) {
 }
 
 @Composable
-private fun MovieCard(movie: MovieEntity, onFocused: () -> Unit = {}) {
+private fun MovieCard(
+    movie: MovieEntity,
+    onFocused: () -> Unit = {},
+    onClick: () -> Unit = {},
+) {
     PosterCard(
         title = movie.movieTitle,
         subtitle = movie.year?.toString(),
         posterUrl = movie.posterUrl.takeIf { it.isNotBlank() },
-        onClick = { /* TODO Phase 4 player */ },
-        cardSize = androidx.compose.ui.unit.DpSize(width = 140.dp, height = 252.dp),
+        onClick = onClick,
         onFocused = onFocused,
     )
 }
 
 @Composable
-private fun CwCard(item: ContinueWatchingEntity, onFocused: () -> Unit = {}) {
+private fun CwCard(
+    item: ContinueWatchingEntity,
+    onFocused: () -> Unit = {},
+    onClick: () -> Unit = {},
+) {
     val pct = if (item.totalDurationMs > 0) {
         (item.resumePositionMs.toFloat() / item.totalDurationMs * 100).toInt()
     } else 0
     PosterCard(
         title = item.contentId,
-        subtitle = "Resume · $pct%",
+        subtitle = "Resume \u00B7 $pct%",
         posterUrl = item.artworkUrl.takeIf { it.isNotBlank() },
-        onClick = { /* TODO Phase 4 player */ },
-        cardSize = androidx.compose.ui.unit.DpSize(width = 140.dp, height = 252.dp),
+        onClick = onClick,
         onFocused = onFocused,
     )
-}
-
-private fun initialsFor(title: String): String {
-    val words = title.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
-    if (words.isEmpty()) return "?"
-    if (words.size == 1) return words[0].first().uppercaseChar().toString()
-    return "${words[0].first()}${words[1].first()}".uppercase()
 }

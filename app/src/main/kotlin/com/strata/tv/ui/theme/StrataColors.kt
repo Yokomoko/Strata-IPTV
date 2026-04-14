@@ -34,4 +34,22 @@ object StrataColors {
     val TextPrimary = Color(0xFFF0EFF4)
     val TextSecondary = Color(0xFF9A98A6)
     val TextTertiary = Color(0xFF66647A)
+
+    // ── Phase 9 extended tokens ─────────────────────────────────────
+    // Gradient stops for cinematic backdrop overlays.
+    val GradientVoidStart = Color(0x00000000)      // transparent
+    val GradientVoidMid = Color(0xB3000000)         // 70 %
+    val GradientVoidEnd = Color(0xFF0A0A0F)         // SurfaceVoid opaque
+
+    // Focus ring / glow.
+    val FocusRing = AccentPrimary
+    val FocusGlow = Color(0x407B5CF0)               // 25 % violet glow
+
+    // Shimmer placeholder colours.
+    val ShimmerBase = SurfaceRaised
+    val ShimmerHighlight = Color(0xFF2A2A3C)
+
+    // Certification / badge chip background.
+    val ChipSurface = Color(0xFF1E1E2E)
+    val ChipBorder = Color(0xFF3A3A4E)
 }

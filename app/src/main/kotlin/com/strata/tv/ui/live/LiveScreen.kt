@@ -1,6 +1,13 @@
 package com.strata.tv.ui.live
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +28,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -35,28 +44,21 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
+import com.strata.tv.ui.nav.AppNavState
+import com.strata.tv.ui.nav.PlayerArgs
 import com.strata.tv.ui.theme.StrataColors
 
 /**
- * Live TV screen — 1D vertical list of channels with Now/Next info.
+ * Live TV screen -- cinematic header + category chips + 1D channel list.
  *
- * Deliberately uses a flat [TvLazyColumn] instead of a 2D scrollable
- * grid.  The Flutter v1 TV Guide used a 2D grid and suffered from
- * endless D-pad navigation problems.  This layout gives trivial focus:
- * up/down between channels, right/select to play.
- *
- * Layout per row:
- * ```
- * [Logo] BBC One                    | NOW: BBC News at Six             | NEXT: The Repair Shop
- * ```
- *
- * Category chips are rendered as a horizontal [TvLazyRow] above the
- * channel list, filtering the displayed channels.
+ * Phase 9: upgraded header with gradient and pulsing live dot,
+ * polished channel rows with focus-aware elevation, better chip styling.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun LiveScreen(
     modifier: Modifier = Modifier,
+    onNavigate: AppNavState? = null,
     viewModel: LiveViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -67,7 +69,7 @@ fun LiveScreen(
             .fillMaxSize()
             .background(StrataColors.SurfaceVoid),
     ) {
-        // Header
+        // Cinematic header
         LiveHeader(
             channelCount = state.channels.size,
             isLoading = epgLoading,
@@ -82,9 +84,9 @@ fun LiveScreen(
             )
         }
 
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(8.dp))
 
-        // Channel list — the 1D TV Guide
+        // Channel list
         if (state.channels.isEmpty() && !epgLoading) {
             EmptyState()
         } else {
@@ -100,7 +102,20 @@ fun LiveScreen(
                     items = state.channels,
                     key = { it.channelEntity.contentId },
                 ) { channel ->
-                    ChannelRow(channel)
+                    ChannelRow(
+                        channel = channel,
+                        onPlay = {
+                            onNavigate?.openPlayer(
+                                PlayerArgs(
+                                    streamUrl = channel.streamUrl,
+                                    title = channel.displayName,
+                                    isLive = true,
+                                    contentType = "live",
+                                    artworkUrl = channel.logoUrl,
+                                ),
+                            )
+                        },
+                    )
                 }
             }
         }
@@ -108,42 +123,77 @@ fun LiveScreen(
 }
 
 // -------------------------------------------------------------------------
-// Header
+// Cinematic header with gradient and pulsing live dot
 // -------------------------------------------------------------------------
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun LiveHeader(channelCount: Int, isLoading: Boolean) {
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 32.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .height(100.dp)
+            .background(
+                Brush.verticalGradient(
+                    colorStops = arrayOf(
+                        0.0f to Color(0xFF1A0A0A),
+                        0.6f to Color(0xFF120808),
+                        1.0f to StrataColors.SurfaceVoid,
+                    ),
+                ),
+            ),
     ) {
-        // Red "LIVE" indicator dot
-        Box(
+        Row(
             modifier = Modifier
-                .size(10.dp)
-                .clip(CircleShape)
-                .background(StrataColors.StatusLive),
-        )
-        Spacer(Modifier.width(10.dp))
-        Text(
-            text = "TV Guide",
-            color = StrataColors.TextPrimary,
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(Modifier.width(16.dp))
-        Text(
-            text = if (isLoading) "Loading guide data..." else "$channelCount channels",
-            color = StrataColors.TextTertiary,
-            fontSize = 13.sp,
-        )
+                .fillMaxWidth()
+                .padding(horizontal = 32.dp, vertical = 24.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Pulsing live dot
+            PulsingLiveDot()
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = "TV Guide",
+                    color = StrataColors.TextPrimary,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = (-0.3).sp,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = if (isLoading) "Loading guide data\u2026" else "$channelCount channels",
+                    color = StrataColors.TextTertiary,
+                    fontSize = 13.sp,
+                )
+            }
+        }
     }
 }
 
+@Composable
+private fun PulsingLiveDot() {
+    val transition = rememberInfiniteTransition(label = "live-dot")
+    val scale by transition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "live-dot-scale",
+    )
+    Box(
+        modifier = Modifier
+            .size(14.dp)
+            .scale(scale)
+            .clip(CircleShape)
+            .background(StrataColors.StatusLive),
+    )
+}
+
 // -------------------------------------------------------------------------
-// Category chips
+// Category chips -- upgraded styling
 // -------------------------------------------------------------------------
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -159,27 +209,27 @@ private fun CategoryChips(
     ) {
         items(items = categories, key = { it }) { category ->
             val isSelected = category == selected
+            val shape = RoundedCornerShape(20.dp)
             Surface(
                 onClick = { onSelected(category) },
-                shape = ClickableSurfaceDefaults.shape(
-                    shape = RoundedCornerShape(16.dp),
-                ),
+                shape = ClickableSurfaceDefaults.shape(shape = shape),
                 colors = ClickableSurfaceDefaults.colors(
-                    containerColor = if (isSelected) {
-                        StrataColors.AccentPrimary
-                    } else {
-                        StrataColors.SurfaceRaised
-                    },
+                    containerColor = if (isSelected) StrataColors.AccentPrimary else StrataColors.SurfaceRaised,
                     focusedContainerColor = StrataColors.AccentPrimaryBright,
                 ),
-                modifier = Modifier.height(32.dp),
+                modifier = Modifier
+                    .height(36.dp)
+                    .then(
+                        if (!isSelected) Modifier.border(1.dp, StrataColors.SurfaceFloat, shape)
+                        else Modifier,
+                    ),
             ) {
                 Text(
                     text = category,
                     color = if (isSelected) Color.White else StrataColors.TextSecondary,
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
                 )
             }
         }
@@ -187,24 +237,25 @@ private fun CategoryChips(
 }
 
 // -------------------------------------------------------------------------
-// Channel row — the core of the 1D TV Guide
+// Channel row -- polished with gradient selected row
 // -------------------------------------------------------------------------
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun ChannelRow(channel: ChannelWithGuide) {
+private fun ChannelRow(
+    channel: ChannelWithGuide,
+    onPlay: () -> Unit,
+) {
     Surface(
-        onClick = { /* TODO Phase 6 player launch */ },
-        shape = ClickableSurfaceDefaults.shape(
-            shape = RoundedCornerShape(8.dp),
-        ),
+        onClick = onPlay,
+        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(10.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = StrataColors.SurfaceBase,
             focusedContainerColor = StrataColors.SurfaceRaised,
         ),
         modifier = Modifier
             .fillMaxWidth()
-            .height(72.dp),
+            .height(76.dp),
     ) {
         Row(
             modifier = Modifier
@@ -212,18 +263,13 @@ private fun ChannelRow(channel: ChannelWithGuide) {
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Channel logo
             ChannelLogo(
                 logoUrl = channel.logoUrl,
                 displayName = channel.displayName,
             )
-
             Spacer(Modifier.width(16.dp))
 
-            // Channel number + name
-            Column(
-                modifier = Modifier.width(180.dp),
-            ) {
+            Column(modifier = Modifier.width(180.dp)) {
                 if (channel.channelNumber != null) {
                     Text(
                         text = channel.channelNumber.toString(),
@@ -250,10 +296,8 @@ private fun ChannelRow(channel: ChannelWithGuide) {
                     .height(40.dp)
                     .background(StrataColors.SurfaceFloat),
             )
-
             Spacer(Modifier.width(16.dp))
 
-            // NOW programme
             NowNextColumn(
                 label = "NOW",
                 labelColor = StrataColors.StatusLive,
@@ -263,17 +307,14 @@ private fun ChannelRow(channel: ChannelWithGuide) {
 
             Spacer(Modifier.width(12.dp))
 
-            // Vertical divider
             Box(
                 modifier = Modifier
                     .width(1.dp)
                     .height(40.dp)
                     .background(StrataColors.SurfaceFloat),
             )
-
             Spacer(Modifier.width(16.dp))
 
-            // NEXT programme
             NowNextColumn(
                 label = "NEXT",
                 labelColor = StrataColors.AccentSecondary,
@@ -295,18 +336,18 @@ private fun ChannelLogo(logoUrl: String, displayName: String) {
             model = logoUrl,
             contentDescription = displayName,
             modifier = Modifier
-                .size(44.dp)
-                .clip(RoundedCornerShape(6.dp)),
+                .size(48.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(StrataColors.SurfaceRaised),
         )
     } else {
-        // Fallback: initials on a coloured tile
         val tileColor = LOGO_PALETTE[
             (displayName.hashCode() and Int.MAX_VALUE) % LOGO_PALETTE.size
         ]
         Box(
             modifier = Modifier
-                .size(44.dp)
-                .clip(RoundedCornerShape(6.dp))
+                .size(48.dp)
+                .clip(RoundedCornerShape(8.dp))
                 .background(tileColor),
             contentAlignment = Alignment.Center,
         ) {
@@ -327,6 +368,7 @@ private fun ChannelLogo(logoUrl: String, displayName: String) {
     }
 }
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun NowNextColumn(
     label: String,
@@ -353,6 +395,7 @@ private fun NowNextColumn(
     }
 }
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun EmptyState() {
     Box(
@@ -363,13 +406,14 @@ private fun EmptyState() {
             Text(
                 text = "No channels yet",
                 color = StrataColors.TextSecondary,
-                fontSize = 16.sp,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium,
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(6.dp))
             Text(
                 text = "Sync your playlist from the Home screen first.",
                 color = StrataColors.TextTertiary,
-                fontSize = 12.sp,
+                fontSize = 13.sp,
             )
         }
     }

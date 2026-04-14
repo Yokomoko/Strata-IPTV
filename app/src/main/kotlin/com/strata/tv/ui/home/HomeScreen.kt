@@ -73,6 +73,7 @@ fun HomeScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val sync by viewModel.syncProgress.collectAsState()
+    val genreRails by viewModel.genreRails.collectAsState()
 
     // The hero carousel renders its own backdrop + gradients, so we
     // don't layer an ImmersiveBackdrop behind the whole screen — that
@@ -142,6 +143,29 @@ fun HomeScreen(
             } else if (isLoading) {
                 ShimmerRail()
                 ShimmerRail()
+            }
+
+            // -- Genre rails (populated as enrichment runs) --------------
+            val accentColors = listOf(
+                StrataColors.AccentSecondary,
+                StrataColors.AccentPrimary,
+                StrataColors.StatusLive,
+                Color(0xFF4A9BD9), // blue accent
+            )
+            genreRails.forEachIndexed { index, rail ->
+                Rail(
+                    title = rail.genre,
+                    accentColor = accentColors[index % accentColors.size],
+                    items = rail.movies,
+                ) { _, movie ->
+                    MovieCard(
+                        movie = movie,
+                        onFocused = {},
+                        onClick = {
+                            onNavigate?.openMovieDetail(movie.contentId)
+                        },
+                    )
+                }
             }
 
         Spacer(Modifier.height(48.dp))

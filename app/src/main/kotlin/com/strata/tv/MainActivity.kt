@@ -41,7 +41,12 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_SEARCH) {
+        // Fire Stick remote: search button, voice/Alexa button, and
+        // the generic assist key all route to our Search tab.
+        if (keyCode == KeyEvent.KEYCODE_SEARCH ||
+            keyCode == KeyEvent.KEYCODE_VOICE_ASSIST ||
+            keyCode == KeyEvent.KEYCODE_ASSIST
+        ) {
             navState?.let { nav ->
                 nav.navigate(Destination.Search)
                 runCatching { nav.contentRequester.requestFocus() }

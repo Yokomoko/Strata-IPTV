@@ -107,11 +107,52 @@ interface MovieDao {
         SELECT id, content_id, movie_title, year, runtime, genre,
                poster_url, resume_position_ms, watched, is_favourite,
                language, rating, provider, tmdb_id, hidden
-        FROM movies WHERE hidden = 0 ORDER BY year DESC
+        FROM movies WHERE hidden = 0
+          AND (year IS NULL OR year BETWEEN 1900 AND 2030)
+        ORDER BY year DESC
         LIMIT 500
         """,
     )
     fun watchAllForList(): Flow<List<MovieListItem>>
+
+    /** Recent movies with posters for the Home screen hero + rails. */
+    @Query(
+        """
+        SELECT id, content_id, movie_title, year, runtime, genre,
+               poster_url, resume_position_ms, watched, is_favourite,
+               language, rating, provider, tmdb_id, hidden
+        FROM movies WHERE hidden = 0 AND poster_url != ''
+          AND (year IS NULL OR year BETWEEN 1900 AND 2030)
+        ORDER BY year DESC
+        LIMIT :limit
+        """,
+    )
+    fun watchRecentWithPosters(limit: Int = 20): Flow<List<MovieListItem>>
+
+    /** Movies with posters for a specific genre — for Home genre rails. */
+    @Query(
+        """
+        SELECT id, content_id, movie_title, year, runtime, genre,
+               poster_url, resume_position_ms, watched, is_favourite,
+               language, rating, provider, tmdb_id, hidden
+        FROM movies WHERE hidden = 0 AND poster_url != ''
+          AND (year IS NULL OR year BETWEEN 1900 AND 2030)
+          AND genre LIKE '%' || :genre || '%'
+        ORDER BY rating DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun byGenre(genre: String, limit: Int = 20): List<MovieListItem>
+
+    /** Distinct genres across all visible movies. */
+    @Query(
+        """
+        SELECT DISTINCT genre FROM movies
+        WHERE hidden = 0 AND genre != '' AND poster_url != ''
+        LIMIT 200
+        """,
+    )
+    suspend fun distinctGenres(): List<String>
 
     @Query(
         """

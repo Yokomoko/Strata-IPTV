@@ -378,8 +378,7 @@ internal fun ChannelLogo(logoUrl: String, displayName: String) {
             contentDescription = displayName,
             modifier = Modifier
                 .size(48.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(StrataColors.SurfaceRaised),
+                .clip(RoundedCornerShape(8.dp)),
         )
     } else {
         val tileColor = LOGO_PALETTE[

@@ -1,6 +1,5 @@
 package com.strata.tv.ui.nav
 
-import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -16,7 +15,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.input.key.onPreviewKeyEvent
 import com.strata.tv.data.tmdb.EnrichmentProgressTracker
 import com.strata.tv.ui.home.HomeScreen
 import com.strata.tv.ui.live.LiveScreen
@@ -100,19 +98,7 @@ fun Shell(
     Row(
         modifier = Modifier
             .fillMaxSize()
-            .background(StrataColors.SurfaceVoid)
-            .onPreviewKeyEvent { event ->
-                // Fire Stick search button → navigate to Search tab.
-                if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
-                    event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_SEARCH
-                ) {
-                    nav.navigate(Destination.Search)
-                    runCatching { nav.contentRequester.requestFocus() }
-                    true
-                } else {
-                    false
-                }
-            },
+            .background(StrataColors.SurfaceVoid),
     ) {
         Sidebar(
             selected = nav.current,

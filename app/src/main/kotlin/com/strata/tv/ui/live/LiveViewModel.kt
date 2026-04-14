@@ -13,6 +13,7 @@ import com.strata.tv.data.epg.EpgChannelMatcher
 import com.strata.tv.data.repo.EpgFetchService
 import com.strata.tv.domain.ChannelDeduplicator
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -98,13 +99,13 @@ class LiveViewModel @Inject constructor(
     init {
         // 1. Show channels immediately (no EPG data yet) so the user
         //    doesn't stare at "No channels" while the EPG fetches.
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             refreshGuide()
         }
 
         // 2. EPG fetch in parallel — when done, refresh to overlay
         //    now/next programme data onto the already-visible channels.
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 _epgLoading.value = true
                 epgFetchService.fetchIfNeeded()
@@ -117,7 +118,7 @@ class LiveViewModel @Inject constructor(
         }
 
         // 3. React to channel list changes from Room (e.g. after a sync).
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             channelDao.watchAll().collect {
                 refreshGuide()
             }

@@ -12,6 +12,7 @@ import com.strata.tv.data.db.MovieDao
 import com.strata.tv.data.db.MovieEntity
 import com.strata.tv.data.db.MovieListItem
 import com.strata.tv.data.db.SeriesDao
+import com.strata.tv.data.db.SourceDao
 import com.strata.tv.data.db.WatchlistDao
 import com.strata.tv.data.db.WatchlistEntity
 import com.strata.tv.data.repo.BootstrapRepository
@@ -30,6 +31,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Duration
+import java.time.Instant
 import javax.inject.Inject
 
 /**
@@ -54,6 +57,7 @@ class HomeViewModel @Inject constructor(
     private val channelDao: ChannelDao,
     private val cwDao: ContinueWatchingDao,
     private val watchlistDao: WatchlistDao,
+    private val sourceDao: SourceDao,
 ) : ViewModel() {
 
     // -- Core state (lightweight flows) --------------------------------
@@ -136,10 +140,21 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             val sourceId = bootstrap.ensureSource()
             enrichmentTracker.startSync()
-            // Force a re-sync to pick up the episode-pattern classifier
-            // fix and new channel categories.
-            // TODO: remove forced sync once the DB has correct data.
-            runCatching { syncService.syncFromUrl(AppConfig.PLAYLIST_URL, sourceId) }
+
+            // Only sync if this is the first run (0 movies) or the
+            // last sync was more than 24 hours ago.
+            val movieCount = movieDao.watchVisibleCount().first()
+            val source = sourceDao.all().firstOrNull()
+            val lastSynced = source?.lastSynced
+            val stale = lastSynced == null ||
+                Duration.between(lastSynced, Instant.now()).toHours() >= 24
+
+            if (movieCount == 0 || stale) {
+                runCatching { syncService.syncFromUrl(AppConfig.PLAYLIST_URL, sourceId) }
+                    .onSuccess {
+                        runCatching { sourceDao.markSynced(sourceId, Instant.now()) }
+                    }
+            }
 
             // Diagnostic: log content counts by type
             launch(Dispatchers.IO) {
@@ -155,6 +170,8 @@ class HomeViewModel @Inject constructor(
             launch(Dispatchers.IO) {
                 runCatching { movieDeduplicator.dedup() }
                     .onFailure { Log.w("HomeVM", "Movie dedup failed", it) }
+                runCatching { movieDeduplicator.dedupSeries() }
+                    .onFailure { Log.w("HomeVM", "Series dedup failed", it) }
             }.join()
 
             // Switch tracker to enrichment phase.

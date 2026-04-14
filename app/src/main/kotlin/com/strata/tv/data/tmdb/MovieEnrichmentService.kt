@@ -73,8 +73,7 @@ class MovieEnrichmentService @Inject constructor(
                     year = movie.year,
                 )
                 val match = response.results.firstOrNull() ?: return
-                val isEnglish = match.originalLanguage.isNullOrEmpty() ||
-                    match.originalLanguage == "en"
+                val isWanted = match.originalLanguage.orEmpty() in WANTED_LANGUAGES
 
                 movieDao.updateMetadata(
                     contentId = movie.contentId,
@@ -84,11 +83,11 @@ class MovieEnrichmentService @Inject constructor(
                     genre = match.genreIds.joinToString(", ") { genreName(it) },
                     rating = match.voteAverage,
                     language = match.originalLanguage.orEmpty(),
-                    hidden = !isEnglish,
+                    hidden = !isWanted,
                     tmdbId = match.id,
                 )
 
-                if (!isEnglish) return
+                if (!isWanted) return
                 tmdbId = match.id
                 delay(PACE_MS)
             }
@@ -123,6 +122,15 @@ class MovieEnrichmentService @Inject constructor(
             if (provider.isNotBlank()) {
                 movieDao.updateProvider(movie.contentId, provider)
             }
+
+            // Trailer URL from the same detail call
+            val trailerKey = pickTrailerKey(detail.videos)
+            if (trailerKey != null) {
+                movieDao.updateTrailerUrl(
+                    movie.contentId,
+                    "https://www.youtube.com/watch?v=$trailerKey",
+                )
+            }
         } catch (e: Throwable) {
             Log.w(TAG, "Enrich failed for '${movie.movieTitle}': ${e.message}")
         }
@@ -147,6 +155,9 @@ class MovieEnrichmentService @Inject constructor(
         private const val PACE_MS = 80L
         private const val CONCURRENCY = 4
 
+        /** Languages the user wants to keep — English or unspecified. */
+        val WANTED_LANGUAGES = setOf("en", "")
+
         fun formatCast(credits: TmdbCredits?): String =
             credits?.cast
                 ?.sortedBy { it.order }
@@ -166,6 +177,14 @@ class MovieEnrichmentService @Inject constructor(
             val results = wrapper?.results ?: return ""
             val country = results["GB"] ?: results["US"] ?: return ""
             return country.flatrate.firstOrNull()?.providerName ?: ""
+        }
+
+        fun pickTrailerKey(wrapper: TmdbVideosWrapper?): String? {
+            val videos = wrapper?.results?.filter {
+                it.site == "YouTube" && it.type == "Trailer"
+            } ?: return null
+            // Prefer official trailers
+            return (videos.firstOrNull { it.official } ?: videos.firstOrNull())?.key
         }
     }
 }

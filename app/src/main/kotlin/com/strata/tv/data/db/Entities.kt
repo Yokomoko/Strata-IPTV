@@ -112,6 +112,7 @@ data class MovieEntity(
     @ColumnInfo(name = "provider") val provider: String = "",
     @ColumnInfo(name = "tmdb_id") val tmdbId: Int = 0,
     @ColumnInfo(name = "hidden") val hidden: Boolean = false,
+    @ColumnInfo(name = "trailer_url", defaultValue = "") val trailerUrl: String = "",
 )
 
 /**

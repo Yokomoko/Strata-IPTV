@@ -58,36 +58,49 @@ interface ContentDao {
             "is", "it", "and", "or", "by", "as", "be", "no", "so",
         )
 
-        /**
-         * Build a [SupportSQLiteQuery] that ANDs a LIKE clause for each
-         * significant word (>=3 chars, not a stop word) against the three
-         * searchable columns.  ALL words must match somewhere in the row,
-         * which avoids the "the" matching every row problem.
-         */
+        /** Expand ordinals and common shorthand so "1st" finds "first" etc. */
+        private val EXPANSIONS = mapOf(
+            "1st" to "first", "2nd" to "second", "3rd" to "third",
+            "4th" to "fourth", "5th" to "fifth", "6th" to "sixth",
+            "7th" to "seventh", "8th" to "eighth", "9th" to "ninth",
+            "10th" to "tenth",
+            // Reverse too
+            "first" to "1st", "second" to "2nd", "third" to "3rd",
+        )
+
         fun buildSearchQuery(query: String): SupportSQLiteQuery {
-            val words = query.trim().lowercase()
+            val rawWords = query.trim().lowercase()
                 .split(Regex("\\s+"))
                 .filter { it.length >= 3 && it !in STOP_WORDS }
                 .distinct()
 
             // Fall back to the raw query if no words survived filtering.
-            val terms = words.ifEmpty { listOf(query.trim().lowercase()) }
+            val terms = rawWords.ifEmpty { listOf(query.trim().lowercase()) }
 
             val clauses = mutableListOf<String>()
             val args = mutableListOf<String>()
 
             for (word in terms) {
-                // Use a prefix (first 4 chars) for the LIKE so typos at
-                // the end of words still match — "bennett" → "%benn%"
-                // matches "bennet". The fuzzy scorer handles full ranking.
                 val prefix = if (word.length > 4) word.take(4) else word
                 val pattern = "%$prefix%"
-                clauses.add(
-                    "(LOWER(display_name) LIKE ? OR LOWER(title) LIKE ? OR LOWER(tvg_name) LIKE ?)",
-                )
-                args.add(pattern)
-                args.add(pattern)
-                args.add(pattern)
+
+                // Check if the word has an expansion (e.g., "1st" ↔ "first")
+                val expanded = EXPANSIONS[word]
+                if (expanded != null) {
+                    val expPrefix = if (expanded.length > 4) expanded.take(4) else expanded
+                    val expPattern = "%$expPrefix%"
+                    // OR: match either the original or the expansion
+                    clauses.add(
+                        "((LOWER(display_name) LIKE ? OR LOWER(title) LIKE ? OR LOWER(tvg_name) LIKE ?) OR " +
+                        "(LOWER(display_name) LIKE ? OR LOWER(title) LIKE ? OR LOWER(tvg_name) LIKE ?))",
+                    )
+                    args.addAll(listOf(pattern, pattern, pattern, expPattern, expPattern, expPattern))
+                } else {
+                    clauses.add(
+                        "(LOWER(display_name) LIKE ? OR LOWER(title) LIKE ? OR LOWER(tvg_name) LIKE ?)",
+                    )
+                    args.addAll(listOf(pattern, pattern, pattern))
+                }
             }
 
             val sql = "SELECT * FROM content_items WHERE ${clauses.joinToString(" AND ")} LIMIT 200"
@@ -157,13 +170,13 @@ interface MovieDao {
     )
     fun watchAllForList(): Flow<List<MovieListItem>>
 
-    /** Recent movies with posters for the Home screen rails. */
+    /** Recent movies for the Home screen rails (shows initials fallback when no poster). */
     @Query(
         """
         SELECT id, content_id, movie_title, year, runtime, genre,
                poster_url, resume_position_ms, watched, is_favourite,
                language, rating, provider, tmdb_id, hidden
-        FROM movies WHERE hidden = 0 AND poster_url != ''
+        FROM movies WHERE hidden = 0
           AND (year IS NULL OR year BETWEEN 1900 AND 2030)
         ORDER BY year DESC
         LIMIT :limit
@@ -338,6 +351,9 @@ interface MovieDao {
     @Query("UPDATE movies SET provider = :provider WHERE content_id = :contentId")
     suspend fun updateProvider(contentId: String, provider: String)
 
+    @Query("UPDATE movies SET trailer_url = :url WHERE content_id = :contentId")
+    suspend fun updateTrailerUrl(contentId: String, url: String)
+
     @Query("UPDATE movies SET resume_position_ms = :pos, watched = :watched WHERE content_id = :contentId")
     suspend fun updateProgress(contentId: String, pos: Long, watched: Boolean)
 
@@ -368,7 +384,7 @@ interface SeriesDao {
     @Query("SELECT * FROM series WHERE hidden = 0")
     fun watchAll(): Flow<List<SeriesEntity>>
 
-    @Query("SELECT * FROM series WHERE series_title = :title LIMIT 1")
+    @Query("SELECT * FROM series WHERE series_title = :title OR LOWER(series_title) = LOWER(:title) LIMIT 1")
     suspend fun byTitle(title: String): SeriesEntity?
 
     @Query(
@@ -437,6 +453,14 @@ interface SeriesDao {
         firstAirYear: Int?,
     )
 
+    /** All series including hidden variants — used by [MovieDeduplicator.dedupSeries]. */
+    @Query("SELECT * FROM series")
+    suspend fun allIncludingHidden(): List<SeriesEntity>
+
+    /** Set the hidden flag on a single series by title. */
+    @Query("UPDATE series SET hidden = :hidden WHERE series_title = :title")
+    suspend fun setHidden(title: String, hidden: Boolean)
+
     @Query("UPDATE series SET hidden = 1 WHERE series_title = :title")
     suspend fun hide(title: String)
 
@@ -448,6 +472,18 @@ interface SeriesDao {
 
     @Query("SELECT COUNT(*) FROM series WHERE hidden = 0")
     fun watchCount(): Flow<Int>
+
+    /** Series with a TMDB ID that still have episodes with empty names. */
+    @Query(
+        """
+        SELECT DISTINCT s.* FROM series s
+        INNER JOIN episodes e ON e.series_title = s.series_title
+        WHERE s.tmdb_id > 0 AND s.hidden = 0
+          AND e.episode_title = ''
+        LIMIT :limit
+        """,
+    )
+    suspend fun needingEpisodeNameEnrichment(limit: Int = 50): List<SeriesEntity>
 }
 
 @Dao
@@ -455,13 +491,13 @@ interface EpisodeDao {
     @Upsert
     suspend fun upsertAll(episodes: List<EpisodeEntity>)
 
-    @Query("SELECT * FROM episodes WHERE series_title = :title ORDER BY season_number, episode_number")
+    @Query("SELECT * FROM episodes WHERE series_title = :title OR LOWER(series_title) = LOWER(:title) ORDER BY season_number, episode_number")
     fun watchSeries(title: String): Flow<List<EpisodeEntity>>
 
     /** First episode of a series (lowest season, then lowest episode) — for "play series" shortcuts. */
     @Query(
         """
-        SELECT * FROM episodes WHERE series_title = :title
+        SELECT * FROM episodes WHERE series_title = :title OR LOWER(series_title) = LOWER(:title)
         ORDER BY season_number, episode_number LIMIT 1
         """,
     )

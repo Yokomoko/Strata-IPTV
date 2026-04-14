@@ -18,8 +18,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.strata.tv.data.tmdb.EnrichmentProgressTracker
 import com.strata.tv.ui.home.HomeScreen
+import com.strata.tv.ui.home.HomeViewModel
 import com.strata.tv.ui.live.LiveScreen
 import com.strata.tv.ui.movies.MovieDetailScreen
 import com.strata.tv.ui.movies.MoviesScreen
@@ -45,19 +47,21 @@ fun Shell(
     val enrichmentProgress = enrichmentTracker?.progress?.collectAsState()?.value
 
     // -- Splash overlay state ----------------------------------------
-    // Track whether the initial sync has ever started. Once the tracker
-    // transitions from running -> not-running (sync done), dismiss splash.
-    // If no enrichmentTracker is provided, skip splash entirely.
-    var syncHasStarted by remember { mutableStateOf(false) }
+    val homeViewModel: HomeViewModel = hiltViewModel()
+    val homeState by homeViewModel.state.collectAsState()
     var firstLoadComplete by remember { mutableStateOf(enrichmentTracker == null) }
 
-    LaunchedEffect(enrichmentProgress) {
-        if (enrichmentProgress?.isRunning == true) {
-            syncHasStarted = true
-        }
-        if (syncHasStarted && enrichmentProgress?.isRunning == false) {
+    // Dismiss on first data.
+    LaunchedEffect(homeState) {
+        if (homeState.movieCount > 0 || homeState.channelCount > 0 || homeState.seriesCount > 0) {
             firstLoadComplete = true
         }
+    }
+
+    // Max timeout: dismiss after 8 seconds regardless.
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(8_000)
+        firstLoadComplete = true
     }
 
     LaunchedEffect(Unit) {

@@ -201,6 +201,7 @@ class LiveViewModel @Inject constructor(
                         logoUrl = channel.logoUrl,
                         channelNumber = channel.channelNumber,
                         category = category,
+                        isFavourite = channel.isFavourite,
                         nowTitle = null,
                         nowDescription = null,
                         nowStartTime = null,

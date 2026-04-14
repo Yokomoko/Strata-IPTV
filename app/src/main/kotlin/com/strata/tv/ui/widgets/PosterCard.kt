@@ -1,6 +1,9 @@
 package com.strata.tv.ui.widgets
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -9,14 +12,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpSize
@@ -32,11 +42,8 @@ import com.strata.tv.ui.theme.StrataColors
 /**
  * Polished poster card for movies / box sets / continue-watching.
  *
- * Wraps Compose for TV's [Card] — gives us the focus-scale animation,
- * glow shadow, rounded corners, and accessibility behaviour for free.
- * Image loading goes through Coil 3 with on-disk caching.
- *
- * Falls back to a coloured tile + initials when there's no poster URL.
+ * Phase 9 upgrade: 1.06x focus scale, 3dp violet ring + glow shadow,
+ * bottom gradient overlay for legibility, and richer typography.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -46,59 +53,87 @@ fun PosterCard(
     posterUrl: String?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    cardSize: DpSize = DpSize(width = 140.dp, height = 252.dp),
+    cardSize: DpSize = DpSize(width = 140.dp, height = 210.dp),
     onFocused: (() -> Unit)? = null,
 ) {
-    val imageHeight = cardSize.height - 56.dp
+    var isFocused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.06f else 1f,
+        animationSpec = tween(durationMillis = 200),
+        label = "card-scale",
+    )
+
+    val shape = RoundedCornerShape(10.dp)
+    val borderMod = if (isFocused) {
+        Modifier
+            .shadow(12.dp, shape, ambientColor = StrataColors.FocusGlow, spotColor = StrataColors.FocusGlow)
+            .border(3.dp, StrataColors.FocusRing, shape)
+    } else {
+        Modifier
+    }
+
     Card(
         onClick = onClick,
         modifier = modifier
             .size(width = cardSize.width, height = cardSize.height)
-            .let { mod ->
-                if (onFocused != null) {
-                    mod.onFocusChanged { if (it.isFocused) onFocused() }
-                } else {
-                    mod
-                }
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .then(borderMod)
+            .onFocusChanged { state ->
+                isFocused = state.isFocused
+                if (state.isFocused) onFocused?.invoke()
             },
-        shape = CardDefaults.shape(shape = RoundedCornerShape(8.dp)),
+        shape = CardDefaults.shape(shape = shape),
         colors = CardDefaults.colors(
             containerColor = StrataColors.SurfaceRaised,
+            focusedContainerColor = StrataColors.SurfaceRaised,
         ),
     ) {
-        Column {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(imageHeight),
-            ) {
-                if (!posterUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = posterUrl,
-                        contentDescription = title,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    Initials(title)
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = title,
-                color = StrataColors.TextPrimary,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 8.dp),
-            )
-            if (!subtitle.isNullOrBlank()) {
-                Text(
-                    text = subtitle,
-                    color = StrataColors.TextTertiary,
-                    fontSize = 10.sp,
-                    modifier = Modifier.padding(horizontal = 8.dp),
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (!posterUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = posterUrl,
+                    contentDescription = title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
                 )
+            } else {
+                Initials(title)
+            }
+
+            // Bottom gradient + text overlay
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)),
+                        ),
+                    )
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    text = title,
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 16.sp,
+                )
+                if (!subtitle.isNullOrBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = subtitle,
+                        color = StrataColors.TextTertiary,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }

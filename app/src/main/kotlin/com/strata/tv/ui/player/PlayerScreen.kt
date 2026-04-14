@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.ui.PlayerView
+import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.strata.tv.ui.theme.StrataColors
@@ -62,16 +63,11 @@ import com.strata.tv.ui.theme.StrataColors
 /**
  * Full-screen ExoPlayer video surface backed by Media3.
  *
- * Renders via [PlayerView] inside an [AndroidView] -- this gives us
- * hardware-accelerated SurfaceView rendering with the codec pipeline
- * that Netflix, Prime and Disney+ use on Fire OS.  The Compose layer
- * handles the overlay (title bar, buffering spinner, controls) while
- * the video surface lives in its own Android View underneath.
- *
- * D-pad key handling follows the same conventions as the Flutter v1
- * player: center/select toggles play/pause, left/right seek, back
- * exits.
+ * Phase 9: polished controls overlay with VOD progress bar,
+ * elapsed/remaining time labels, smooth bottom gradient,
+ * and fade animation for the controls.
  */
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun PlayerScreen(
     streamUrl: String,
@@ -86,7 +82,6 @@ fun PlayerScreen(
     val state by viewModel.uiState.collectAsState()
     val focusRequester = remember { FocusRequester() }
 
-    // -- Initialise the player once -----------------------------------
     LaunchedEffect(Unit) {
         viewModel.initialize(
             streamUrl = streamUrl,
@@ -98,16 +93,12 @@ fun PlayerScreen(
         )
     }
 
-    // -- Wakelock -- keep screen on while playing ---------------------
     val view = LocalView.current
     DisposableEffect(Unit) {
         view.keepScreenOn = true
-        onDispose {
-            view.keepScreenOn = false
-        }
+        onDispose { view.keepScreenOn = false }
     }
 
-    // -- Save on exit (back-press or onExit call) ---------------------
     val exitHandler = remember(onExit) {
         {
             viewModel.saveOnExit()
@@ -115,7 +106,6 @@ fun PlayerScreen(
         }
     }
 
-    // -- Root container with D-pad key handling -----------------------
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -123,71 +113,49 @@ fun PlayerScreen(
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
-                // Only handle key-down events (ACTION_DOWN).
                 if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) {
                     return@onPreviewKeyEvent false
                 }
-
                 when (event.nativeKeyEvent.keyCode) {
-                    // Back / Escape -> exit
-                    KeyEvent.KEYCODE_BACK,
-                    KeyEvent.KEYCODE_ESCAPE,
-                    -> {
+                    KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
                         exitHandler()
                         true
                     }
-
-                    // Play/pause toggle
-                    KeyEvent.KEYCODE_DPAD_CENTER,
-                    KeyEvent.KEYCODE_ENTER,
-                    KeyEvent.KEYCODE_SPACE,
-                    KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
-                    -> {
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
+                    KeyEvent.KEYCODE_SPACE, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
                         viewModel.togglePlayPause()
                         viewModel.showControls()
                         true
                     }
-
-                    // Seek backward -10s
-                    KeyEvent.KEYCODE_MEDIA_REWIND,
-                    KeyEvent.KEYCODE_DPAD_LEFT,
-                    -> {
+                    KeyEvent.KEYCODE_MEDIA_REWIND, KeyEvent.KEYCODE_DPAD_LEFT -> {
                         viewModel.seekRelative(-10_000)
                         viewModel.showControls()
                         true
                     }
-
-                    // Seek forward +30s
-                    KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
-                    KeyEvent.KEYCODE_DPAD_RIGHT,
-                    -> {
+                    KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_DPAD_RIGHT -> {
                         viewModel.seekRelative(30_000)
                         viewModel.showControls()
                         true
                     }
-
                     else -> {
-                        // Any other key press shows the controls overlay.
                         viewModel.showControls()
                         false
                     }
                 }
             },
     ) {
-        // -- Video surface --------------------------------------------
+        // -- Video surface -----------------------------------------------
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     player = viewModel.player
-                    useController = false // We draw our own overlay.
-                    // SurfaceView is the default and preferred for hardware
-                    // decode on Android TV -- no change needed.
+                    useController = false
                 }
             },
             modifier = Modifier.fillMaxSize(),
         )
 
-        // -- Buffering spinner ----------------------------------------
+        // -- Buffering spinner -------------------------------------------
         if (state.isBuffering) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -195,12 +163,12 @@ fun PlayerScreen(
             ) {
                 SpinningArc(
                     color = StrataColors.AccentPrimary,
-                    modifier = Modifier.size(48.dp),
+                    modifier = Modifier.size(52.dp),
                 )
             }
         }
 
-        // -- Error overlay --------------------------------------------
+        // -- Error overlay -----------------------------------------------
         state.errorMessage?.let { errorMsg ->
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -210,7 +178,7 @@ fun PlayerScreen(
                     modifier = Modifier
                         .padding(48.dp)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(StrataColors.SurfaceRaised.copy(alpha = 0.9f))
+                        .background(StrataColors.SurfaceRaised.copy(alpha = 0.92f))
                         .padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
@@ -237,29 +205,46 @@ fun PlayerScreen(
             }
         }
 
-        // -- Controls overlay (auto-hide after 4s) --------------------
+        // -- Controls overlay --------------------------------------------
         AnimatedVisibility(
             visible = state.controlsVisible,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(tween(250)),
+            exit = fadeOut(tween(400)),
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color(0xCC000000),
-                                Color.Transparent,
-                                Color.Transparent,
-                                Color(0xCC000000),
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Top gradient
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp)
+                        .align(Alignment.TopCenter)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color(0xCC000000),
+                                    Color.Transparent,
+                                ),
                             ),
-                            startY = 0f,
-                            endY = Float.POSITIVE_INFINITY,
                         ),
-                    ),
-            ) {
-                // Top bar -- title + live badge
+                )
+
+                // Bottom gradient
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .align(Alignment.BottomCenter)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color(0xCC000000),
+                                ),
+                            ),
+                        ),
+                )
+
+                // Top bar -- back + title + live badge
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -299,61 +284,120 @@ fun PlayerScreen(
                     }
                 }
 
-                // Bottom controls -- transport buttons
-                Row(
+                // Bottom controls area
+                Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .padding(bottom = 32.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
+                        .padding(horizontal = 24.dp, vertical = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    // VOD progress bar
                     if (!isLive) {
-                        Icon(
-                            imageVector = Icons.Filled.Replay10,
-                            contentDescription = "Rewind 10 seconds",
-                            tint = Color.White,
-                            modifier = Modifier.size(36.dp),
-                        )
-                        Spacer(Modifier.width(24.dp))
+                        val player = viewModel.player
+                        val positionMs = player.currentPosition.coerceAtLeast(0)
+                        val durationMs = player.duration.coerceAtLeast(1)
+                        val progress = if (durationMs > 0) {
+                            (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
+                        } else 0f
+
+                        // Time labels
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = formatTime(positionMs),
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 12.sp,
+                            )
+                            Text(
+                                text = "-${formatTime((durationMs - positionMs).coerceAtLeast(0))}",
+                                color = Color.White.copy(alpha = 0.6f),
+                                fontSize = 12.sp,
+                            )
+                        }
+                        Spacer(Modifier.height(6.dp))
+
+                        // Progress bar
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(Color.White.copy(alpha = 0.2f)),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(progress)
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(StrataColors.AccentPrimary),
+                            )
+                        }
+                        Spacer(Modifier.height(16.dp))
                     }
-                    Icon(
-                        imageVector = if (state.isPlaying) {
-                            Icons.Filled.PauseCircleFilled
-                        } else {
-                            Icons.Filled.PlayCircleFilled
-                        },
-                        contentDescription = if (state.isPlaying) "Pause" else "Play",
-                        tint = Color.White,
-                        modifier = Modifier.size(56.dp),
-                    )
-                    if (!isLive) {
-                        Spacer(Modifier.width(24.dp))
+
+                    // Transport buttons
+                    Row(
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (!isLive) {
+                            Icon(
+                                imageVector = Icons.Filled.Replay10,
+                                contentDescription = "Rewind 10 seconds",
+                                tint = Color.White.copy(alpha = 0.85f),
+                                modifier = Modifier.size(40.dp),
+                            )
+                            Spacer(Modifier.width(28.dp))
+                        }
                         Icon(
-                            imageVector = Icons.Filled.Forward30,
-                            contentDescription = "Forward 30 seconds",
+                            imageVector = if (state.isPlaying) {
+                                Icons.Filled.PauseCircleFilled
+                            } else {
+                                Icons.Filled.PlayCircleFilled
+                            },
+                            contentDescription = if (state.isPlaying) "Pause" else "Play",
                             tint = Color.White,
-                            modifier = Modifier.size(36.dp),
+                            modifier = Modifier.size(60.dp),
                         )
+                        if (!isLive) {
+                            Spacer(Modifier.width(28.dp))
+                            Icon(
+                                imageVector = Icons.Filled.Forward30,
+                                contentDescription = "Forward 30 seconds",
+                                tint = Color.White.copy(alpha = 0.85f),
+                                modifier = Modifier.size(40.dp),
+                            )
+                        }
                     }
                 }
             }
         }
     }
 
-    // -- Request focus so D-pad events reach us -----------------------
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
     }
 }
 
-// -- Buffering spinner built from Canvas (no material3 dep) -----------
+// -- Helpers -------------------------------------------------------------
 
-/**
- * A simple spinning arc indicator using only Compose Foundation APIs.
- * Avoids pulling in `androidx.compose.material3` which isn't in the
- * dependency graph for this TV-focused project.
- */
+private fun formatTime(ms: Long): String {
+    val totalSeconds = (ms / 1000).coerceAtLeast(0)
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) {
+        String.format("%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format("%d:%02d", minutes, seconds)
+    }
+}
+
+// -- Buffering spinner ---------------------------------------------------
+
 @Composable
 private fun SpinningArc(
     color: Color,

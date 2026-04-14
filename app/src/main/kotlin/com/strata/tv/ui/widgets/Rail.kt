@@ -27,15 +27,10 @@ import androidx.tv.material3.Text
 import com.strata.tv.ui.theme.StrataColors
 
 /**
- * A horizontal rail of items — the home screen's primary unit.
+ * A horizontal rail of items -- the primary content unit across all screens.
  *
- * Uses [TvLazyRow] (TV-flavoured LazyRow) so that:
- * - Items off-screen are not built, keeping memory bounded for long
- *   rails (a "Latest from Netflix" rail can have 40+ posters).
- * - D-pad Right/Left navigates between items for free.
- * - Auto-scroll follows focus — Compose for TV's lazy lists handle
- *   the bring-into-view behaviour the Flutter app had to reimplement
- *   manually.
+ * Phase 9: section headers upgraded to 22sp with accent bar, items
+ * spaced for comfortable D-pad navigation.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -43,29 +38,30 @@ fun <T> Rail(
     title: String,
     accentColor: Color,
     items: List<T>,
-    contentPadding: PaddingValues = PaddingValues(horizontal = 24.dp),
-    itemSpacing: Int = 12,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 32.dp),
+    itemSpacing: Int = 14,
     item: @Composable (Int, T) -> Unit,
 ) {
     if (items.isEmpty()) return
 
     Column {
         Row(
-            modifier = Modifier.padding(start = 32.dp, top = 16.dp, bottom = 8.dp),
+            modifier = Modifier.padding(start = 32.dp, top = 20.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
-                    .size(width = 4.dp, height = 20.dp)
+                    .size(width = 4.dp, height = 24.dp)
                     .clip(RoundedCornerShape(2.dp))
                     .background(accentColor),
             )
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(12.dp))
             Text(
                 text = title,
                 color = StrataColors.TextPrimary,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.3).sp,
             )
         }
 
@@ -77,6 +73,6 @@ fun <T> Rail(
                 item(index, value)
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(12.dp))
     }
 }

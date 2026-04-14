@@ -16,126 +16,114 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import com.strata.tv.ui.home.HomeScreen
 import com.strata.tv.ui.live.LiveScreen
+import com.strata.tv.ui.movies.MovieDetailScreen
 import com.strata.tv.ui.movies.MoviesScreen
 import com.strata.tv.ui.player.PlayerScreen
 import com.strata.tv.ui.search.SearchScreen
-import com.strata.tv.ui.settings.SettingsScreen
+import com.strata.tv.ui.shows.ShowDetailScreen
 import com.strata.tv.ui.shows.ShowsScreen
 import com.strata.tv.ui.theme.StrataColors
 
 /**
- * Top-level shell — renders the persistent sidebar on the left and
- * the currently-selected destination's screen on the right.
+ * Top-level shell -- sidebar + content area + overlay layers.
  *
- * When a screen asks to play something (movies, shows, live channels,
- * search results) it drops a [PlayerArgs] into [AppNavState.playerArgs]
- * and this shell overlays [PlayerScreen] full-bleed on top of the
- * selected tab.  Back from the player clears the overlay and reveals
- * the original tab exactly as the user left it.
- *
- * Focus model:
- * - On launch, the sidebar autofocuses (LaunchedEffect on first frame).
- * - D-pad Right from the sidebar enters the content area via the
- *   sidebar's exit-direction focus property.
- * - The back button toggles focus between sidebar and content — or
- *   closes the player if one is open.
+ * Phase 9: now wires real screens for all destinations, plus
+ * movie/show detail overlays and the player overlay.
  */
 @Composable
 fun Shell(
     nav: AppNavState = rememberAppNavState(),
 ) {
-    // Track which zone last had focus so the back-button toggle
-    // knows whether to send focus to sidebar or content.
     var sidebarHasFocus by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
-        // First-frame autofocus on the sidebar — sets the user's
-        // entry point on app launch.
         runCatching { nav.sidebarRequester.requestFocus() }
     }
 
+    // -- Back handler: detail overlay -> sidebar/content toggle -------
     BackHandler {
-        when {
-            // Player open → close it and reveal the tab underneath.
-            nav.playerArgs != null -> nav.closePlayer()
-
-            // Sidebar has focus → push focus into the content area.
-            // (Same gesture as Fire Stick remote's Back when the
-            // user is parked on the sidebar — they want to keep
-            // watching what's shown, not exit.)
-            sidebarHasFocus -> runCatching { nav.contentRequester.requestFocus() }
-
-            // Content has focus → bounce back to sidebar.
-            else -> runCatching { nav.sidebarRequester.requestFocus() }
+        if (!nav.navigateBack()) {
+            if (sidebarHasFocus) {
+                runCatching { nav.contentRequester.requestFocus() }
+            } else {
+                runCatching { nav.sidebarRequester.requestFocus() }
+            }
         }
     }
 
-    Box(
+    // -- Player overlay (highest z-order) ----------------------------
+    val playerArgs = nav.playerArgs
+    if (playerArgs != null) {
+        PlayerScreen(
+            streamUrl = playerArgs.streamUrl,
+            title = playerArgs.title,
+            isLive = playerArgs.isLive,
+            resumePositionMs = playerArgs.resumePositionMs,
+            contentType = playerArgs.contentType,
+            artworkUrl = playerArgs.artworkUrl,
+            onExit = { nav.closePlayer() },
+        )
+        return // Player is full-screen, nothing else renders.
+    }
+
+    // -- Detail overlay (sits on top of content) ---------------------
+    val detailRoute = nav.detailRoute
+    if (detailRoute != null) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(StrataColors.SurfaceVoid),
+        ) {
+            when (detailRoute) {
+                is DetailRoute.Movie -> MovieDetailScreen(
+                    contentId = detailRoute.contentId,
+                    onBack = { nav.closeDetail() },
+                    onPlay = { args -> nav.openPlayer(args) },
+                )
+                is DetailRoute.Show -> ShowDetailScreen(
+                    seriesTitle = detailRoute.seriesTitle,
+                    onBack = { nav.closeDetail() },
+                    onPlay = { args -> nav.openPlayer(args) },
+                )
+            }
+        }
+        return // Detail is full-screen over the shell.
+    }
+
+    // -- Normal shell: sidebar + content -----------------------------
+    Row(
         modifier = Modifier
             .fillMaxSize()
             .background(StrataColors.SurfaceVoid),
     ) {
-        // -- Base layer: sidebar + content ---------------------------------
-        Row(modifier = Modifier.fillMaxSize()) {
-            Sidebar(
-                selected = nav.current,
-                onSelected = { nav.navigate(it) },
-                sidebarFocusRequester = nav.sidebarRequester,
-                modifier = Modifier.onFocusChanged { sidebarHasFocus = it.hasFocus },
-            )
+        Sidebar(
+            selected = nav.current,
+            onSelected = { nav.navigate(it) },
+            sidebarFocusRequester = nav.sidebarRequester,
+            modifier = Modifier.onFocusChanged { sidebarHasFocus = it.hasFocus },
+        )
 
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .focusRequester(nav.contentRequester)
-                    .onFocusChanged { if (it.hasFocus) sidebarHasFocus = false },
-            ) {
-                when (nav.current) {
-                    Destination.Home -> HomeScreen()
-                    Destination.Live -> LiveScreen(
-                        onPlayChannel = { channel ->
-                            nav.openPlayer(
-                                PlayerArgs(
-                                    streamUrl = channel.streamUrl,
-                                    title = channel.displayName,
-                                    isLive = true,
-                                    contentType = "live",
-                                    artworkUrl = channel.logoUrl,
-                                ),
-                            )
-                        },
-                    )
-                    Destination.Movies -> MoviesScreen(onPlay = nav::openPlayer)
-                    Destination.Shows -> ShowsScreen(onPlay = nav::openPlayer)
-                    Destination.Search -> SearchScreen(
-                        onResultClick = { result ->
-                            nav.openPlayer(
-                                PlayerArgs(
-                                    streamUrl = result.streamUrl,
-                                    title = result.title.ifBlank { result.displayName },
-                                    isLive = result.contentType == "live",
-                                    contentType = result.contentType,
-                                    artworkUrl = result.artworkUrl,
-                                ),
-                            )
-                        },
-                    )
-                    Destination.Settings -> SettingsScreen()
-                }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .focusRequester(nav.contentRequester)
+                .onFocusChanged { if (it.hasFocus) sidebarHasFocus = false },
+        ) {
+            when (nav.current) {
+                Destination.Home -> HomeScreen(onNavigate = nav)
+                Destination.Live -> LiveScreen(onNavigate = nav)
+                Destination.Movies -> MoviesScreen(onNavigate = nav)
+                Destination.Shows -> ShowsScreen(onNavigate = nav)
+                Destination.Search -> SearchScreen(onNavigate = nav)
+                Destination.Settings -> SettingsPlaceholder()
             }
         }
-
-        // -- Overlay layer: full-bleed player -----------------------------
-        nav.playerArgs?.let { args ->
-            PlayerScreen(
-                streamUrl = args.streamUrl,
-                title = args.title,
-                isLive = args.isLive,
-                resumePositionMs = args.resumePositionMs,
-                contentType = args.contentType,
-                artworkUrl = args.artworkUrl,
-                onExit = { nav.closePlayer() },
-            )
-        }
     }
+}
+
+/** Temporary placeholder for Settings. */
+@Composable
+private fun SettingsPlaceholder() {
+    // Settings screen exists in ui/settings/ but does not need Phase 9 treatment.
+    com.strata.tv.ui.settings.SettingsScreen()
 }

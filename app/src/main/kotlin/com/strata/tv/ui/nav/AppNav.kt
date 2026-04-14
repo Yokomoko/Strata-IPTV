@@ -11,24 +11,11 @@ import androidx.compose.ui.focus.FocusRequester
 /**
  * Lightweight in-memory nav state for Strata TV.
  *
- * The app has six top-level destinations (see [Destination]) and a
- * tiny number of detail routes (series detail, player) — far short of
- * needing Compose Navigation 3, which would add ceremony for very
- * little gain.  A bare [AppNavState] holding the current destination
- * and a back stack is enough.
- *
- * Holds two [FocusRequester]s used by the shell to bridge focus
- * between the sidebar and the content area:
- *
- * - [sidebarRequester] — used to send focus into the sidebar (Back
- *   button, app launch with sidebar autofocus).
- * - [contentRequester] — used to send focus into the content area
- *   (D-pad Right from the sidebar, or Back button when sidebar
- *   already has focus).
- *
- * Each screen that renders into the content area attaches the
- * `contentRequester` to its first focusable widget so the cross-zone
- * jump always lands somewhere visible.
+ * Phase 9: added [DetailRoute] for movie / show detail screens,
+ * plus [PlayerArgs] for launching the player from detail pages.
+ * The detail screen sits *on top* of the current destination
+ * (like a dialog / overlay) so the back button returns to the
+ * rail the user was browsing.
  */
 @Stable
 class AppNavState internal constructor(
@@ -37,11 +24,11 @@ class AppNavState internal constructor(
     var current: Destination by mutableStateOf(initialDestination)
         private set
 
-    /**
-     * When non-null, [Shell] renders the player screen full-bleed on
-     * top of whatever tab was selected.  Closing the player (Back)
-     * clears this back to null and reveals the original tab.
-     */
+    /** Detail overlay -- non-null when a movie/show detail screen is visible. */
+    var detailRoute: DetailRoute? by mutableStateOf(null)
+        private set
+
+    /** Player args -- non-null when the player should be shown. */
     var playerArgs: PlayerArgs? by mutableStateOf(null)
         private set
 
@@ -49,7 +36,21 @@ class AppNavState internal constructor(
     val contentRequester: FocusRequester = FocusRequester()
 
     fun navigate(destination: Destination) {
+        detailRoute = null
+        playerArgs = null
         current = destination
+    }
+
+    fun openMovieDetail(contentId: String) {
+        detailRoute = DetailRoute.Movie(contentId)
+    }
+
+    fun openShowDetail(seriesTitle: String) {
+        detailRoute = DetailRoute.Show(seriesTitle)
+    }
+
+    fun closeDetail() {
+        detailRoute = null
     }
 
     fun openPlayer(args: PlayerArgs) {
@@ -59,25 +60,34 @@ class AppNavState internal constructor(
     fun closePlayer() {
         playerArgs = null
     }
+
+    /** Navigate back from the deepest overlay first. */
+    fun navigateBack(): Boolean {
+        return when {
+            playerArgs != null -> { playerArgs = null; true }
+            detailRoute != null -> { detailRoute = null; true }
+            else -> false
+        }
+    }
 }
 
-/**
- * Args plumbed from a "play" tap on any card to the player screen.
- * Plain data class — no Compose dependencies — so it can be passed
- * around freely (Movies / Live / Search / Home all build one of
- * these from their own row type and call [AppNavState.openPlayer]).
- */
-@Stable
+/** Detail screen routing. */
+sealed interface DetailRoute {
+    data class Movie(val contentId: String) : DetailRoute
+    data class Show(val seriesTitle: String) : DetailRoute
+}
+
+/** Arguments for launching the player. */
 data class PlayerArgs(
     val streamUrl: String,
     val title: String,
-    val isLive: Boolean,
-    val resumePositionMs: Long = 0,
+    val isLive: Boolean = false,
+    val resumePositionMs: Long = 0L,
     val contentType: String = "movie",
     val artworkUrl: String = "",
 )
 
-/** Composable factory — the state outlives configuration changes via [remember]. */
+/** Composable factory. */
 @Composable
 fun rememberAppNavState(
     initialDestination: Destination = Destination.Home,

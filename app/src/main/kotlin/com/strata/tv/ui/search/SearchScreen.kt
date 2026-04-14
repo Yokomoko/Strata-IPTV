@@ -28,6 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
@@ -42,29 +44,31 @@ import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.tv.foundation.lazy.list.TvLazyColumn
+import androidx.tv.foundation.lazy.list.TvLazyRow
 import androidx.tv.foundation.lazy.list.items
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.ListItem
+import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.strata.tv.ui.nav.AppNavState
+import com.strata.tv.ui.nav.PlayerArgs
 import com.strata.tv.ui.theme.StrataColors
 
 /**
- * Global search screen — text field at the top, grouped results below.
+ * Search screen -- polished search field, quick-access genre chips
+ * as empty state, grouped results with type badges.
  *
- * Ported from v1's `search_screen.dart` but using native Compose for TV
- * components ([ListItem], [TvLazyColumn]) for a polished leanback feel.
- *
- * Voice search hooks (Phase 8) will plug into [onVoiceQuery] — a lambda
- * that feeds recognised text into the ViewModel the same way the
- * keyboard does.  The mic button is not rendered yet.
+ * Phase 9: upgraded typography, empty state with genre suggestions,
+ * better visual hierarchy.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun SearchScreen(
     modifier: Modifier = Modifier,
+    onNavigate: AppNavState? = null,
     viewModel: SearchViewModel = hiltViewModel(),
-    onResultClick: (SearchResult) -> Unit = {},
 ) {
     val query by viewModel.query.collectAsState()
     val uiState by viewModel.results.collectAsState()
@@ -81,6 +85,7 @@ fun SearchScreen(
             color = StrataColors.TextPrimary,
             fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
+            letterSpacing = (-0.3).sp,
         )
         Spacer(Modifier.height(16.dp))
 
@@ -94,20 +99,23 @@ fun SearchScreen(
         // Results / empty state
         when (val state = uiState) {
             SearchUiState.Empty -> {
-                EmptyHint("Type at least 2 characters to search")
+                SearchEmptyState(
+                    message = "Search channels, movies, and shows",
+                    onQuickSearch = { viewModel.onQueryChanged(it) },
+                )
             }
             SearchUiState.NoResults -> {
-                EmptyHint("No results for \"$query\"")
+                NoResultsState(query)
             }
             is SearchUiState.Results -> {
-                ResultsList(state, onResultClick)
+                ResultsList(state, onNavigate)
             }
         }
     }
 }
 
 // =====================================================================
-// Search field — TV-friendly BasicTextField with custom decoration
+// Search field
 // =====================================================================
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -117,7 +125,6 @@ private fun SearchField(
     onValueChange: (String) -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
-
     val borderColor = if (focused) StrataColors.AccentPrimary else StrataColors.SurfaceOverlay
 
     BasicTextField(
@@ -137,15 +144,19 @@ private fun SearchField(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
                     .background(StrataColors.SurfaceRaised)
-                    .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+                    .border(
+                        width = if (focused) 2.dp else 1.dp,
+                        color = borderColor,
+                        shape = RoundedCornerShape(12.dp),
+                    )
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
                     imageVector = Icons.Outlined.Search,
                     contentDescription = "Search",
-                    tint = StrataColors.TextTertiary,
-                    modifier = Modifier.size(20.dp),
+                    tint = if (focused) StrataColors.AccentPrimary else StrataColors.TextTertiary,
+                    modifier = Modifier.size(22.dp),
                 )
                 Spacer(Modifier.width(12.dp))
                 Box(Modifier.weight(1f)) {
@@ -167,15 +178,105 @@ private fun SearchField(
 }
 
 // =====================================================================
-// Results list — vertical TvLazyColumn with grouped sections
+// Empty state with quick-search genre chips
 // =====================================================================
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun ResultsList(
-    state: SearchUiState.Results,
-    onResultClick: (SearchResult) -> Unit,
+private fun SearchEmptyState(
+    message: String,
+    onQuickSearch: (String) -> Unit,
 ) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Spacer(Modifier.height(60.dp))
+
+        Icon(
+            imageVector = Icons.Outlined.Search,
+            contentDescription = null,
+            tint = StrataColors.TextTertiary.copy(alpha = 0.4f),
+            modifier = Modifier.size(64.dp),
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(
+            text = message,
+            color = StrataColors.TextSecondary,
+            fontSize = 16.sp,
+        )
+        Spacer(Modifier.height(24.dp))
+
+        // Quick-search genre chips
+        Text(
+            text = "QUICK SEARCH",
+            color = StrataColors.TextTertiary,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.5.sp,
+        )
+        Spacer(Modifier.height(12.dp))
+
+        val quickSearches = listOf("Action", "Comedy", "Drama", "Horror", "Sci-Fi", "Documentary", "Kids", "News")
+        TvLazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+        ) {
+            items(items = quickSearches, key = { it }) { genre ->
+                Surface(
+                    onClick = { onQuickSearch(genre) },
+                    shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(20.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = StrataColors.SurfaceRaised,
+                        focusedContainerColor = StrataColors.AccentPrimary,
+                    ),
+                    modifier = Modifier
+                        .height(36.dp)
+                        .border(1.dp, StrataColors.SurfaceFloat, RoundedCornerShape(20.dp)),
+                ) {
+                    Text(
+                        text = genre,
+                        color = StrataColors.TextSecondary,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun NoResultsState(query: String) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "No results found",
+                color = StrataColors.TextSecondary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "Try a different search for \"$query\"",
+                color = StrataColors.TextTertiary,
+                fontSize = 13.sp,
+            )
+        }
+    }
+}
+
+// =====================================================================
+// Results list
+// =====================================================================
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun ResultsList(state: SearchUiState.Results, onNavigate: AppNavState?) {
     TvLazyColumn(
         contentPadding = PaddingValues(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -186,9 +287,23 @@ private fun ResultsList(
                 items = state.channels.take(20),
                 key = { "ch:${it.contentId}" },
             ) { result ->
-                ResultRow(result, Icons.Outlined.LiveTv, StrataColors.StatusLive, "LIVE") {
-                    onResultClick(result)
-                }
+                ResultRow(
+                    result = result,
+                    icon = Icons.Outlined.LiveTv,
+                    iconColor = StrataColors.StatusLive,
+                    typeLabel = "LIVE",
+                    onClick = {
+                        onNavigate?.openPlayer(
+                            PlayerArgs(
+                                streamUrl = result.streamUrl,
+                                title = result.title,
+                                isLive = true,
+                                contentType = "live",
+                                artworkUrl = result.artworkUrl,
+                            ),
+                        )
+                    },
+                )
             }
         }
 
@@ -198,9 +313,15 @@ private fun ResultsList(
                 items = state.movies.take(30),
                 key = { "mv:${it.contentId}" },
             ) { result ->
-                ResultRow(result, Icons.Outlined.Movie, StrataColors.AccentPrimary, "MOVIE") {
-                    onResultClick(result)
-                }
+                ResultRow(
+                    result = result,
+                    icon = Icons.Outlined.Movie,
+                    iconColor = StrataColors.AccentPrimary,
+                    typeLabel = "MOVIE",
+                    onClick = {
+                        onNavigate?.openMovieDetail(result.contentId)
+                    },
+                )
             }
         }
 
@@ -210,9 +331,17 @@ private fun ResultsList(
                 items = state.shows.take(30),
                 key = { "sh:${it.contentId}" },
             ) { result ->
-                ResultRow(result, Icons.Outlined.VideoLibrary, StrataColors.AccentSecondary, "SHOW") {
-                    onResultClick(result)
-                }
+                ResultRow(
+                    result = result,
+                    icon = Icons.Outlined.VideoLibrary,
+                    iconColor = StrataColors.AccentSecondary,
+                    typeLabel = "SHOW",
+                    onClick = {
+                        if (result.seriesTitle.isNotBlank()) {
+                            onNavigate?.openShowDetail(result.seriesTitle)
+                        }
+                    },
+                )
             }
         }
     }
@@ -228,14 +357,14 @@ private fun SectionHeader(title: String) {
     Text(
         text = title,
         color = StrataColors.TextSecondary,
-        fontSize = 14.sp,
+        fontSize = 16.sp,
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
     )
 }
 
 // =====================================================================
-// Result row — TV ListItem
+// Result row
 // =====================================================================
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -243,7 +372,7 @@ private fun SectionHeader(title: String) {
 private fun ResultRow(
     result: SearchResult,
     icon: ImageVector,
-    iconColor: androidx.compose.ui.graphics.Color,
+    iconColor: Color,
     typeLabel: String,
     onClick: () -> Unit,
 ) {
@@ -255,6 +384,7 @@ private fun ResultRow(
                 text = result.title,
                 color = StrataColors.TextPrimary,
                 fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1,
             )
         },
@@ -273,35 +403,23 @@ private fun ResultRow(
                 imageVector = icon,
                 contentDescription = result.contentType,
                 tint = iconColor,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(22.dp),
             )
         },
         trailingContent = {
-            Text(
-                text = typeLabel,
-                color = iconColor,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(iconColor.copy(alpha = 0.15f))
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    text = typeLabel,
+                    color = iconColor,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         },
     )
-}
-
-// =====================================================================
-// Empty / hint state
-// =====================================================================
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun EmptyHint(message: String) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = message,
-            color = StrataColors.TextTertiary,
-            fontSize = 14.sp,
-        )
-    }
 }

@@ -4,7 +4,10 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.RawQuery
 import androidx.room.Upsert
+import androidx.sqlite.db.SimpleSQLiteQuery
+import androidx.sqlite.db.SupportSQLiteQuery
 import kotlinx.coroutines.flow.Flow
 import java.time.Instant
 
@@ -38,20 +41,50 @@ interface ContentDao {
     suspend fun byType(type: String): List<ContentItemEntity>
 
     /**
-     * Search across content items.  Used by the global search field.
-     * Substring match on display_name + title + tvg_name; ranking
-     * (Levenshtein) happens in Kotlin on the result list.
+     * Word-split search: matches rows where **any** significant word
+     * in the query appears in display_name, title, or tvg_name.
+     *
+     * This is intentionally broad — it over-fetches so that the
+     * Kotlin-side [FuzzyMatch] scorer can rank and prune the results,
+     * catching typos and partial matches that a strict SQL LIKE would
+     * miss.  The LIMIT 500 keeps the candidate set bounded.
      */
-    @Query(
-        """
-        SELECT * FROM content_items
-        WHERE LOWER(display_name) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(title) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(tvg_name) LIKE '%' || LOWER(:query) || '%'
-        LIMIT 200
-        """,
-    )
-    suspend fun search(query: String): List<ContentItemEntity>
+    @RawQuery
+    suspend fun searchRaw(query: SupportSQLiteQuery): List<ContentItemEntity>
+
+    companion object {
+        /**
+         * Build a [SupportSQLiteQuery] that ORs a LIKE clause for each
+         * word in [query] (length >= 3) against the three searchable
+         * columns.  Falls back to the full query string if no words
+         * pass the length filter.
+         */
+        fun buildSearchQuery(query: String): SupportSQLiteQuery {
+            val words = query.trim().lowercase()
+                .split(Regex("\\s+"))
+                .filter { it.length >= 2 }
+                .distinct()
+
+            // Fall back to the raw query if no words survived filtering.
+            val terms = words.ifEmpty { listOf(query.trim().lowercase()) }
+
+            val clauses = mutableListOf<String>()
+            val args = mutableListOf<String>()
+
+            for (word in terms) {
+                val pattern = "%$word%"
+                clauses.add(
+                    "(LOWER(display_name) LIKE ? OR LOWER(title) LIKE ? OR LOWER(tvg_name) LIKE ?)",
+                )
+                args.add(pattern)
+                args.add(pattern)
+                args.add(pattern)
+            }
+
+            val sql = "SELECT * FROM content_items WHERE ${clauses.joinToString(" OR ")} LIMIT 500"
+            return SimpleSQLiteQuery(sql, args.toTypedArray())
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

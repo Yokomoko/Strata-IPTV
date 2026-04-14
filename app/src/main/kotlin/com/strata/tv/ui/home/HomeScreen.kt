@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -299,7 +300,29 @@ private fun HeroCarousel(
         modifier = Modifier
             .fillMaxWidth()
             .height(340.dp)
-            .onFocusChanged { isPaused = it.hasFocus },
+            .focusable()
+            .onFocusChanged { isPaused = it.hasFocus }
+            .onPreviewKeyEvent { event ->
+                if (event.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN) {
+                    return@onPreviewKeyEvent false
+                }
+                when (event.nativeKeyEvent.keyCode) {
+                    android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                        currentIndex = if (currentIndex > 0) currentIndex - 1 else count - 1
+                        true
+                    }
+                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        currentIndex = (currentIndex + 1) % count
+                        true
+                    }
+                    android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+                    android.view.KeyEvent.KEYCODE_ENTER -> {
+                        onMovieClick(contentId)
+                        true
+                    }
+                    else -> false
+                }
+            },
     ) {
         // Backdrop image with crossfade
         AnimatedContent(

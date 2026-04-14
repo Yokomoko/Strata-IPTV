@@ -18,7 +18,8 @@ object AppConfig {
     /** TMDB v3 API key. */
     const val TMDB_API_KEY: String = "470b957a64d89a73eadeee858ea390c4"
 
-    /** TMDB image base URL + the size we use for poster cards. */
+    /** TMDB image base URL + the sizes we use for poster cards / backdrops. */
     const val TMDB_IMAGE_BASE: String = "https://image.tmdb.org/t/p"
     const val TMDB_POSTER_SIZE: String = "w500"
+    const val TMDB_BACKDROP_SIZE: String = "original"
 }

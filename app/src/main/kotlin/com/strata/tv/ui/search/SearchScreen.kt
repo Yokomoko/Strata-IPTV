@@ -77,13 +77,10 @@ fun SearchScreen(
     val query by viewModel.query.collectAsState()
     val uiState by viewModel.results.collectAsState()
 
-    // Dismiss soft keyboard when results appear or query changes to non-empty.
+    // Keyboard is dismissed when the user navigates Down from the
+    // search field into the results — NOT on result arrival, which
+    // was stealing focus mid-typing.
     val keyboardController = LocalSoftwareKeyboardController.current
-    LaunchedEffect(uiState) {
-        if (uiState is SearchUiState.Results || uiState is SearchUiState.NoResults) {
-            keyboardController?.hide()
-        }
-    }
 
     Column(
         modifier = modifier

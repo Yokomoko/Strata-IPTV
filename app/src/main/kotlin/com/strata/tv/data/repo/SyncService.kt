@@ -55,6 +55,7 @@ class SyncService @Inject constructor(
     private val movieDao: MovieDao,
     private val seriesDao: SeriesDao,
     private val episodeDao: EpisodeDao,
+    private val progressTracker: com.strata.tv.data.tmdb.EnrichmentProgressTracker,
 ) {
 
     sealed interface Progress {
@@ -114,11 +115,15 @@ class SyncService @Inject constructor(
                                 ContentType.Show -> episodes.add(entry)
                             }
                         }
+                        progressTracker.advanceBy(result.entries.size)
                     }
                     is ParseResult.Progress -> {
                         _progress.value = Progress.Parsing(result.parsed, result.skipped)
                     }
-                    is ParseResult.Complete -> Unit
+                    is ParseResult.Complete -> {
+                        // Grand total = parsed items * 2 (sync half + enrichment half).
+                        progressTracker.setGrandTotal(result.totalParsed * 2)
+                    }
                 }
             }
 

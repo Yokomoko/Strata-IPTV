@@ -58,36 +58,49 @@ interface ContentDao {
             "is", "it", "and", "or", "by", "as", "be", "no", "so",
         )
 
-        /**
-         * Build a [SupportSQLiteQuery] that ANDs a LIKE clause for each
-         * significant word (>=3 chars, not a stop word) against the three
-         * searchable columns.  ALL words must match somewhere in the row,
-         * which avoids the "the" matching every row problem.
-         */
+        /** Expand ordinals and common shorthand so "1st" finds "first" etc. */
+        private val EXPANSIONS = mapOf(
+            "1st" to "first", "2nd" to "second", "3rd" to "third",
+            "4th" to "fourth", "5th" to "fifth", "6th" to "sixth",
+            "7th" to "seventh", "8th" to "eighth", "9th" to "ninth",
+            "10th" to "tenth",
+            // Reverse too
+            "first" to "1st", "second" to "2nd", "third" to "3rd",
+        )
+
         fun buildSearchQuery(query: String): SupportSQLiteQuery {
-            val words = query.trim().lowercase()
+            val rawWords = query.trim().lowercase()
                 .split(Regex("\\s+"))
                 .filter { it.length >= 3 && it !in STOP_WORDS }
                 .distinct()
 
             // Fall back to the raw query if no words survived filtering.
-            val terms = words.ifEmpty { listOf(query.trim().lowercase()) }
+            val terms = rawWords.ifEmpty { listOf(query.trim().lowercase()) }
 
             val clauses = mutableListOf<String>()
             val args = mutableListOf<String>()
 
             for (word in terms) {
-                // Use a prefix (first 4 chars) for the LIKE so typos at
-                // the end of words still match — "bennett" → "%benn%"
-                // matches "bennet". The fuzzy scorer handles full ranking.
                 val prefix = if (word.length > 4) word.take(4) else word
                 val pattern = "%$prefix%"
-                clauses.add(
-                    "(LOWER(display_name) LIKE ? OR LOWER(title) LIKE ? OR LOWER(tvg_name) LIKE ?)",
-                )
-                args.add(pattern)
-                args.add(pattern)
-                args.add(pattern)
+
+                // Check if the word has an expansion (e.g., "1st" ↔ "first")
+                val expanded = EXPANSIONS[word]
+                if (expanded != null) {
+                    val expPrefix = if (expanded.length > 4) expanded.take(4) else expanded
+                    val expPattern = "%$expPrefix%"
+                    // OR: match either the original or the expansion
+                    clauses.add(
+                        "((LOWER(display_name) LIKE ? OR LOWER(title) LIKE ? OR LOWER(tvg_name) LIKE ?) OR " +
+                        "(LOWER(display_name) LIKE ? OR LOWER(title) LIKE ? OR LOWER(tvg_name) LIKE ?))",
+                    )
+                    args.addAll(listOf(pattern, pattern, pattern, expPattern, expPattern, expPattern))
+                } else {
+                    clauses.add(
+                        "(LOWER(display_name) LIKE ? OR LOWER(title) LIKE ? OR LOWER(tvg_name) LIKE ?)",
+                    )
+                    args.addAll(listOf(pattern, pattern, pattern))
+                }
             }
 
             val sql = "SELECT * FROM content_items WHERE ${clauses.joinToString(" AND ")} LIMIT 200"

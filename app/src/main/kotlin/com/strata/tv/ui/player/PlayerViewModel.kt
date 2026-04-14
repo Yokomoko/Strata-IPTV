@@ -9,14 +9,12 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
-import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import com.strata.tv.data.db.ContentDao
 import com.strata.tv.data.db.ContinueWatchingDao
 import com.strata.tv.data.db.ContinueWatchingEntity
 import com.strata.tv.data.db.EpisodeDao
-import com.strata.tv.data.db.EpisodeEntity
 import com.strata.tv.data.db.WatchHistoryDao
 import com.strata.tv.data.db.WatchHistoryEntity
 import com.strata.tv.ui.nav.ChannelPlayInfo
@@ -109,6 +107,12 @@ class PlayerViewModel @Inject constructor(
 
             _uiState.update { it.copy(isBuffering = buffering) }
 
+            // Clear error overlay when the stream successfully recovers.
+            if (playbackState == Player.STATE_READY && _uiState.value.errorMessage != null) {
+                retryCount = 0
+                _uiState.update { it.copy(errorMessage = null) }
+            }
+
             // Resume seek: apply once when the player first reaches READY.
             if (playbackState == Player.STATE_READY && !resumeApplied) {
                 resumeApplied = true
@@ -151,6 +155,7 @@ class PlayerViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(errorMessage = "Retrying... (attempt $retryCount/$maxRetries)")
                 }
+                retryJob?.cancel()  // cancel any pending retry to prevent stacking
                 retryJob = viewModelScope.launch {
                     delay(delayMs)
                     player.prepare()

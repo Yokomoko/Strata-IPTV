@@ -38,7 +38,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject

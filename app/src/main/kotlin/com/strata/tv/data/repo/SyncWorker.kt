@@ -8,6 +8,7 @@ import androidx.work.WorkerParameters
 import com.strata.tv.AppConfig
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * WorkManager [CoroutineWorker] that runs an M3U playlist sync in
@@ -32,7 +33,9 @@ class SyncWorker @AssistedInject constructor(
             syncService.syncFromUrl(AppConfig.PLAYLIST_URL, sourceId)
             Log.d(TAG, "Background sync completed successfully")
             Result.success()
-        } catch (e: Throwable) {
+        } catch (e: CancellationException) {
+            throw e  // propagate cancellation cooperatively
+        } catch (e: Exception) {
             Log.w(TAG, "Background sync failed", e)
             // Retry on transient failures (network errors etc.).
             if (runAttemptCount < 3) Result.retry() else Result.failure()

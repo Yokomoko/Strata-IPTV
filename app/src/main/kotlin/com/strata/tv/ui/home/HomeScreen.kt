@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +60,7 @@ import com.strata.tv.ui.widgets.Rail
 import com.strata.tv.ui.widgets.ShimmerRail
 import com.strata.tv.ui.widgets.rememberFeaturedState
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Home screen -- Netflix-style hero carousel + horizontal rails.
@@ -77,6 +80,9 @@ fun HomeScreen(
     val genreRails by viewModel.genreRails.collectAsState()
     val providerRails by viewModel.providerRails.collectAsState()
 
+    val scrollState = rememberScrollState()
+    val coroutineScope = rememberCoroutineScope()
+
     // The hero carousel renders its own backdrop + gradients, so we
     // don't layer an ImmersiveBackdrop behind the whole screen — that
     // caused a double-image "cut off and repeat" artefact.
@@ -84,7 +90,7 @@ fun HomeScreen(
         modifier = modifier
             .fillMaxSize()
             .background(StrataColors.SurfaceVoid)
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(scrollState),
     ) {
             // -- Hero carousel (uses backdrops when available) ----------
             HeroCarousel(
@@ -98,6 +104,21 @@ fun HomeScreen(
             SyncBanner(sync)
 
             Spacer(Modifier.height(24.dp))
+
+            // Invisible focusable anchor: when D-pad Up lands here from
+            // the first rail, scroll the column back to reveal the hero.
+            Spacer(
+                Modifier
+                    .height(1.dp)
+                    .onFocusChanged { focusState ->
+                        if (focusState.isFocused) {
+                            coroutineScope.launch {
+                                scrollState.animateScrollTo(0)
+                            }
+                        }
+                    }
+                    .focusable()
+            )
 
             // -- Rails ---------------------------------------------------
             val isLoading = state.recentMovies.isEmpty() &&

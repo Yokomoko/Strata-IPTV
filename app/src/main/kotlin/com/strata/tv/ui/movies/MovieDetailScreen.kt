@@ -105,7 +105,7 @@ private fun MovieDetailContent(
 
     Box(modifier = Modifier.fillMaxSize()) {
         // -- Full-bleed backdrop -----------------------------------------
-        val backdropUrl = content.backdropUrl.takeIf { it.isNotBlank() }
+        val backdropUrl = movie.backdropUrl.takeIf { it.isNotBlank() }
             ?: movie.posterUrl.takeIf { it.isNotBlank() }
         if (backdropUrl != null) {
             AsyncImage(
@@ -202,7 +202,7 @@ private fun MovieDetailContent(
                             MetadataChip("\u2605 ${String.format("%.1f", movie.rating)}")
                         }
                         // Phase 8: certification field
-                        val cert = getCertification(content)
+                        val cert = getCertification(movie)
                         if (cert.isNotBlank()) {
                             MetadataChip(cert)
                         }
@@ -216,7 +216,7 @@ private fun MovieDetailContent(
                     Spacer(Modifier.height(16.dp))
 
                     // Overview / plot
-                    val overview = getOverview(content)
+                    val overview = getOverview(movie)
                     if (overview.isNotBlank()) {
                         Text(
                             text = overview,
@@ -230,7 +230,7 @@ private fun MovieDetailContent(
                     }
 
                     // Cast
-                    val cast = getCast(content)
+                    val cast = getCast(movie)
                     if (cast.isNotBlank()) {
                         Text(
                             text = "Cast",
@@ -319,7 +319,7 @@ private fun MovieDetailContent(
     }
 }
 
-// Phase 8 field accessors -- fall back gracefully when columns are missing.
-private fun getOverview(content: ContentItemEntity): String = content.plot
-private fun getCast(content: ContentItemEntity): String = "" // Phase 8: content.cast
-private fun getCertification(content: ContentItemEntity): String = "" // Phase 8: content.certification
+// Phase 8 fields live on MovieEntity, not ContentItemEntity.
+private fun getOverview(movie: MovieEntity): String = movie.overview
+private fun getCast(movie: MovieEntity): String = movie.cast
+private fun getCertification(movie: MovieEntity): String = movie.certification

@@ -140,10 +140,9 @@ class LiveViewModel @Inject constructor(
     /** Toggle the favourite status of a channel by its content ID. */
     fun toggleFavourite(contentId: String, currentlyFavourite: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
-            channelDao.setFavourite(contentId, !currentlyFavourite)
-            // The Room Flow from watchAll() will trigger refreshGuide()
-            // automatically, which rebuilds the channel list with the
-            // updated isFavourite flag.
+            runCatching {
+                channelDao.setFavourite(contentId, !currentlyFavourite)
+            }.onFailure { Log.e(TAG, "Failed to toggle favourite: $contentId", it) }
         }
     }
 
@@ -153,8 +152,12 @@ class LiveViewModel @Inject constructor(
      */
     fun markChannelWatched(contentId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            channelDao.markWatched(contentId, Instant.now())
-            _lastWatchedContentId.value = contentId
+            try {
+                channelDao.markWatched(contentId, Instant.now())
+                _lastWatchedContentId.value = contentId
+            } catch (e: Throwable) {
+                Log.e(TAG, "Failed to mark channel as watched: $contentId", e)
+            }
         }
     }
 
@@ -252,7 +255,14 @@ class LiveViewModel @Inject constructor(
                 val idx = order.indexOf(cat)
                 if (idx >= 0) idx else order.size // Unknown categories go at the end
             }
-            _categories.value = listOf("All") + sorted
+            val finalCategories = listOf("All") + sorted
+            _categories.value = finalCategories
+
+            // Reset selected category if it's no longer valid (e.g., last
+            // favourite was removed → "Favourites" chip disappears).
+            if (_selectedCategory.value !in finalCategories) {
+                _selectedCategory.value = "All"
+            }
 
             // Resolve the last-watched channel on first load.
             if (_lastWatchedContentId.value == null) {

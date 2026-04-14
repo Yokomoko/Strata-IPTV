@@ -3,11 +3,12 @@ package com.strata.tv.domain
 /**
  * Sub-categorises live channels into TV-Guide-friendly buckets.
  *
- * All channels are classified into exactly one of 8 user-facing
- * categories (plus "All" which shows everything).  Non-UK groups
- * from the M3U (e.g. "Peacock TV", "Paramount Plus", "TBO") are
- * mapped into the appropriate category rather than passed through
- * as their own chips.
+ * All channels are classified into one of 8 content categories
+ * (plus "All" which shows everything and "Favourites" which is a
+ * user-curated pseudo-category, not a classification rule).
+ * Non-UK groups from the M3U (e.g. "Peacock TV", "Paramount Plus",
+ * "TBO") are mapped into the appropriate category rather than
+ * passed through as their own chips.
  */
 object ChannelCategorizer {
 

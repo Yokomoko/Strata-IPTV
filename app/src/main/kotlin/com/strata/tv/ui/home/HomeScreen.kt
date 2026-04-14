@@ -188,7 +188,11 @@ fun HomeScreen(
                             subtitle = null,
                             posterUrl = item.artworkUrl.takeIf { it.isNotBlank() },
                             onClick = {
-                                onNavigate?.openMovieDetail(item.contentId)
+                                if (item.contentType == "show") {
+                                    onNavigate?.openShowDetail(item.contentId)
+                                } else {
+                                    onNavigate?.openMovieDetail(item.contentId)
+                                }
                             },
                         )
                     }

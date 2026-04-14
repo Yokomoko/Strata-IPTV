@@ -59,8 +59,13 @@ class EnrichmentProgressTracker @Inject constructor() {
         _progress.update { it.copy(total = totalParsed, label = "Processing") }
     }
 
-    /** Switch to enrichment phase — resets counters. */
+    /** Switch to enrichment phase — resets counters.
+     *  If total is 0, nothing to enrich — hide the ring. */
     fun startEnrichment(total: Int) {
+        if (total == 0) {
+            _progress.value = Progress(isRunning = false)
+            return
+        }
         _progress.value = Progress(
             processed = 0,
             total = total,

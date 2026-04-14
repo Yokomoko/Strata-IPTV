@@ -63,35 +63,39 @@ class MovieEnrichmentService @Inject constructor(
      */
     private suspend fun enrichSingle(movie: MovieEntity) {
         try {
-            // Step 1: Search for TMDB ID
-            val response = tmdb.searchMovie(
-                apiKey = AppConfig.TMDB_API_KEY,
-                query = movie.movieTitle,
-                year = movie.year,
-            )
-            val match = response.results.firstOrNull() ?: return
-            val isEnglish = match.originalLanguage.isNullOrEmpty() ||
-                match.originalLanguage == "en"
+            var tmdbId = movie.tmdbId
 
-            // Save search results immediately (poster, genre, rating, tmdbId)
-            movieDao.updateMetadata(
-                contentId = movie.contentId,
-                poster = match.posterPath?.let {
-                    "${AppConfig.TMDB_IMAGE_BASE}/${AppConfig.TMDB_POSTER_SIZE}$it"
-                } ?: "",
-                genre = match.genreIds.joinToString(", ") { genreName(it) },
-                rating = match.voteAverage,
-                language = match.originalLanguage.orEmpty(),
-                hidden = !isEnglish,
-                tmdbId = match.id,
-            )
+            // Step 1: Search for TMDB ID (skip if already known)
+            if (tmdbId == 0) {
+                val response = tmdb.searchMovie(
+                    apiKey = AppConfig.TMDB_API_KEY,
+                    query = movie.movieTitle,
+                    year = movie.year,
+                )
+                val match = response.results.firstOrNull() ?: return
+                val isEnglish = match.originalLanguage.isNullOrEmpty() ||
+                    match.originalLanguage == "en"
 
-            if (!isEnglish) return // Don't waste a detail call on hidden items
+                movieDao.updateMetadata(
+                    contentId = movie.contentId,
+                    poster = match.posterPath?.let {
+                        "${AppConfig.TMDB_IMAGE_BASE}/${AppConfig.TMDB_POSTER_SIZE}$it"
+                    } ?: "",
+                    genre = match.genreIds.joinToString(", ") { genreName(it) },
+                    rating = match.voteAverage,
+                    language = match.originalLanguage.orEmpty(),
+                    hidden = !isEnglish,
+                    tmdbId = match.id,
+                )
 
-            // Step 2: Detail call — overview, backdrop, cast, cert, provider — all in one
-            delay(PACE_MS) // Brief pause between the 2 calls for this movie
+                if (!isEnglish) return
+                tmdbId = match.id
+                delay(PACE_MS)
+            }
+
+            // Step 2: Detail call — overview, backdrop, cast, cert, provider
             val detail = tmdb.movieDetail(
-                id = match.id,
+                id = tmdbId,
                 apiKey = AppConfig.TMDB_API_KEY,
             )
 

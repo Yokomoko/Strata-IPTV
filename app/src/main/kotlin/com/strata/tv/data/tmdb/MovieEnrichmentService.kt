@@ -123,6 +123,15 @@ class MovieEnrichmentService @Inject constructor(
             if (provider.isNotBlank()) {
                 movieDao.updateProvider(movie.contentId, provider)
             }
+
+            // Trailer URL from the same detail call
+            val trailerKey = pickTrailerKey(detail.videos)
+            if (trailerKey != null) {
+                movieDao.updateTrailerUrl(
+                    movie.contentId,
+                    "https://www.youtube.com/watch?v=$trailerKey",
+                )
+            }
         } catch (e: Throwable) {
             Log.w(TAG, "Enrich failed for '${movie.movieTitle}': ${e.message}")
         }
@@ -166,6 +175,14 @@ class MovieEnrichmentService @Inject constructor(
             val results = wrapper?.results ?: return ""
             val country = results["GB"] ?: results["US"] ?: return ""
             return country.flatrate.firstOrNull()?.providerName ?: ""
+        }
+
+        fun pickTrailerKey(wrapper: TmdbVideosWrapper?): String? {
+            val videos = wrapper?.results?.filter {
+                it.site == "YouTube" && it.type == "Trailer"
+            } ?: return null
+            // Prefer official trailers
+            return (videos.firstOrNull { it.official } ?: videos.firstOrNull())?.key
         }
     }
 }

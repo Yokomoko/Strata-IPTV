@@ -1,5 +1,7 @@
 package com.strata.tv.ui.movies
 
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -289,6 +292,35 @@ private fun MovieDetailContent(
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
                         )
+                    }
+                }
+
+                // Watch Trailer
+                if (movie.trailerUrl.isNotBlank()) {
+                    val context = LocalContext.current
+                    Surface(
+                        onClick = {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(movie.trailerUrl))
+                            context.startActivity(intent)
+                        },
+                        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = StrataColors.SurfaceFloat,
+                            focusedContainerColor = StrataColors.SurfaceOverlay,
+                        ),
+                        modifier = Modifier.height(48.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "\u25B6  Trailer",
+                                color = StrataColors.TextPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
                     }
                 }
 

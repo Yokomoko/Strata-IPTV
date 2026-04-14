@@ -102,6 +102,7 @@ fun SearchScreen(
         SearchField(
             value = query,
             onValueChange = { viewModel.onQueryChanged(it) },
+            onImeSearch = { keyboardController?.hide() },
         )
         Spacer(Modifier.height(16.dp))
 
@@ -132,6 +133,7 @@ fun SearchScreen(
 private fun SearchField(
     value: String,
     onValueChange: (String) -> Unit,
+    onImeSearch: () -> Unit = {},
 ) {
     var focused by remember { mutableStateOf(false) }
     val borderColor = if (focused) StrataColors.AccentPrimary else StrataColors.SurfaceOverlay
@@ -146,7 +148,7 @@ private fun SearchField(
         ),
         cursorBrush = SolidColor(StrataColors.AccentPrimary),
         keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions.Default,
+        keyboardActions = KeyboardActions(onSearch = { onImeSearch() }),
         decorationBox = { innerTextField ->
             Row(
                 modifier = Modifier

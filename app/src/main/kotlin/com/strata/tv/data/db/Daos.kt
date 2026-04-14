@@ -338,6 +338,9 @@ interface MovieDao {
     @Query("UPDATE movies SET provider = :provider WHERE content_id = :contentId")
     suspend fun updateProvider(contentId: String, provider: String)
 
+    @Query("UPDATE movies SET trailer_url = :url WHERE content_id = :contentId")
+    suspend fun updateTrailerUrl(contentId: String, url: String)
+
     @Query("UPDATE movies SET resume_position_ms = :pos, watched = :watched WHERE content_id = :contentId")
     suspend fun updateProgress(contentId: String, pos: Long, watched: Boolean)
 
@@ -448,6 +451,18 @@ interface SeriesDao {
 
     @Query("SELECT COUNT(*) FROM series WHERE hidden = 0")
     fun watchCount(): Flow<Int>
+
+    /** Series with a TMDB ID that still have episodes with empty names. */
+    @Query(
+        """
+        SELECT DISTINCT s.* FROM series s
+        INNER JOIN episodes e ON e.series_title = s.series_title
+        WHERE s.tmdb_id > 0 AND s.hidden = 0
+          AND e.episode_title = ''
+        LIMIT :limit
+        """,
+    )
+    suspend fun needingEpisodeNameEnrichment(limit: Int = 50): List<SeriesEntity>
 }
 
 @Dao

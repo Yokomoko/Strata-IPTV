@@ -1,6 +1,9 @@
 package com.strata.tv.ui.nav
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -24,6 +27,7 @@ import com.strata.tv.ui.player.PlayerScreen
 import com.strata.tv.ui.search.SearchScreen
 import com.strata.tv.ui.shows.ShowDetailScreen
 import com.strata.tv.ui.shows.ShowsScreen
+import com.strata.tv.ui.splash.SplashOverlay
 import com.strata.tv.ui.theme.StrataColors
 
 /**
@@ -39,6 +43,22 @@ fun Shell(
 ) {
     var sidebarHasFocus by remember { mutableStateOf(true) }
     val enrichmentProgress = enrichmentTracker?.progress?.collectAsState()?.value
+
+    // -- Splash overlay state ----------------------------------------
+    // Track whether the initial sync has ever started. Once the tracker
+    // transitions from running -> not-running (sync done), dismiss splash.
+    // If no enrichmentTracker is provided, skip splash entirely.
+    var syncHasStarted by remember { mutableStateOf(false) }
+    var firstLoadComplete by remember { mutableStateOf(enrichmentTracker == null) }
+
+    LaunchedEffect(enrichmentProgress) {
+        if (enrichmentProgress?.isRunning == true) {
+            syncHasStarted = true
+        }
+        if (syncHasStarted && enrichmentProgress?.isRunning == false) {
+            firstLoadComplete = true
+        }
+    }
 
     LaunchedEffect(Unit) {
         runCatching { nav.sidebarRequester.requestFocus() }
@@ -95,34 +115,47 @@ fun Shell(
     }
 
     // -- Normal shell: sidebar + content -----------------------------
-    Row(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(StrataColors.SurfaceVoid),
-    ) {
-        Sidebar(
-            selected = nav.current,
-            onSelected = { nav.navigate(it) },
-            sidebarFocusRequester = nav.sidebarRequester,
-            modifier = Modifier.onFocusChanged { sidebarHasFocus = it.hasFocus },
-            enrichmentProgress = enrichmentProgress?.fraction ?: 0f,
-            enrichmentRunning = enrichmentProgress?.isRunning == true,
-        )
-
-        Box(
+    Box(modifier = Modifier.fillMaxSize()) {
+        Row(
             modifier = Modifier
                 .fillMaxSize()
-                .focusRequester(nav.contentRequester)
-                .onFocusChanged { if (it.hasFocus) sidebarHasFocus = false },
+                .background(StrataColors.SurfaceVoid),
         ) {
-            when (nav.current) {
-                Destination.Home -> HomeScreen(onNavigate = nav)
-                Destination.Live -> LiveScreen(onNavigate = nav)
-                Destination.Movies -> MoviesScreen(onNavigate = nav)
-                Destination.Shows -> ShowsScreen(onNavigate = nav)
-                Destination.Search -> SearchScreen(onNavigate = nav)
-                Destination.Settings -> SettingsPlaceholder()
+            Sidebar(
+                selected = nav.current,
+                onSelected = { nav.navigate(it) },
+                sidebarFocusRequester = nav.sidebarRequester,
+                modifier = Modifier.onFocusChanged { sidebarHasFocus = it.hasFocus },
+                enrichmentProgress = enrichmentProgress?.fraction ?: 0f,
+                enrichmentRunning = enrichmentProgress?.isRunning == true,
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .focusRequester(nav.contentRequester)
+                    .onFocusChanged { if (it.hasFocus) sidebarHasFocus = false },
+            ) {
+                when (nav.current) {
+                    Destination.Home -> HomeScreen(onNavigate = nav)
+                    Destination.Live -> LiveScreen(onNavigate = nav)
+                    Destination.Movies -> MoviesScreen(onNavigate = nav)
+                    Destination.Shows -> ShowsScreen(onNavigate = nav)
+                    Destination.Search -> SearchScreen(onNavigate = nav)
+                    Destination.Settings -> SettingsPlaceholder()
+                }
             }
+        }
+
+        // -- Splash overlay (fades out once data arrives) ---------------
+        AnimatedVisibility(
+            visible = !firstLoadComplete,
+            exit = fadeOut(animationSpec = tween(durationMillis = 500)),
+        ) {
+            SplashOverlay(
+                enrichmentFraction = enrichmentProgress?.fraction ?: 0f,
+                enrichmentRunning = enrichmentProgress?.isRunning == true,
+            )
         }
     }
 }

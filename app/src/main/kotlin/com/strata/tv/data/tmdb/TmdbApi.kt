@@ -37,7 +37,7 @@ interface TmdbApi {
     suspend fun movieDetail(
         @Path("id") id: Int,
         @Query("api_key") apiKey: String,
-        @Query("append_to_response") append: String = "credits,release_dates,watch/providers",
+        @Query("append_to_response") append: String = "credits,release_dates,watch/providers,videos",
     ): TmdbMovieDetail
 
     /** TV detail with credits + content ratings + watch providers. */
@@ -47,6 +47,14 @@ interface TmdbApi {
         @Query("api_key") apiKey: String,
         @Query("append_to_response") append: String = "credits,content_ratings,watch/providers",
     ): TmdbTvDetail
+
+    /** Season detail — episode names and overviews for a single season. */
+    @GET("tv/{id}/season/{season}")
+    suspend fun tvSeason(
+        @Path("id") id: Int,
+        @Path("season") season: Int,
+        @Query("api_key") apiKey: String,
+    ): TmdbSeasonDetail
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +115,7 @@ data class TmdbMovieDetail(
     val credits: TmdbCredits? = null,
     @SerialName("release_dates") val releaseDates: TmdbReleaseDatesWrapper? = null,
     @SerialName("watch/providers") val watchProviders: TmdbWatchProvidersWrapper? = null,
+    val videos: TmdbVideosWrapper? = null,
 )
 
 @Serializable
@@ -171,6 +180,23 @@ data class TmdbContentRating(
 )
 
 // ---------------------------------------------------------------------------
+// Videos (append_to_response=videos)
+// ---------------------------------------------------------------------------
+
+@Serializable
+data class TmdbVideosWrapper(
+    val results: List<TmdbVideo> = emptyList(),
+)
+
+@Serializable
+data class TmdbVideo(
+    val key: String,
+    val site: String,
+    val type: String,
+    val official: Boolean = false,
+)
+
+// ---------------------------------------------------------------------------
 // Watch providers (append_to_response=watch/providers)
 // ---------------------------------------------------------------------------
 
@@ -188,4 +214,20 @@ data class TmdbCountryProviders(
 data class TmdbProvider(
     @SerialName("provider_name") val providerName: String,
     @SerialName("provider_id") val providerId: Int,
+)
+
+// ---------------------------------------------------------------------------
+// Season detail (/tv/{id}/season/{n}) — episode names
+// ---------------------------------------------------------------------------
+
+@Serializable
+data class TmdbSeasonDetail(
+    val episodes: List<TmdbEpisodeDetail> = emptyList(),
+)
+
+@Serializable
+data class TmdbEpisodeDetail(
+    @SerialName("episode_number") val episodeNumber: Int,
+    val name: String = "",
+    val overview: String = "",
 )

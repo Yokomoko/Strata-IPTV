@@ -115,21 +115,6 @@ fun HomeScreen(
 
             Spacer(Modifier.height(24.dp))
 
-            // Invisible focusable anchor: when D-pad Up lands here from
-            // the first rail, scroll the column back to reveal the hero.
-            Spacer(
-                Modifier
-                    .height(1.dp)
-                    .onFocusChanged { focusState ->
-                        if (focusState.isFocused) {
-                            coroutineScope.launch {
-                                scrollState.animateScrollTo(0)
-                            }
-                        }
-                    }
-                    .focusable()
-            )
-
             // -- Rails ---------------------------------------------------
             val isLoading = state.recentMovies.isEmpty() &&
                 sync != SyncService.Progress.Idle &&

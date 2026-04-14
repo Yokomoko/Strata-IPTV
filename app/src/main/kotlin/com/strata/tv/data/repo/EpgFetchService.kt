@@ -41,6 +41,19 @@ class EpgFetchService @Inject constructor(
     }
 
     /**
+     * Channel display names extracted from the most recent XMLTV parse.
+     * The matcher uses these to bridge opaque XMLTV ids to human-readable
+     * names that can be compared against M3U display names.
+     *
+     * Populated after a successful [fetchIfNeeded]; empty if the last
+     * launch used cached data (no fetch needed).  The LiveViewModel
+     * passes this to [EpgChannelMatcher.build] so display-name-based
+     * matching is available immediately.
+     */
+    var lastParseDisplayNames: Map<String, String> = emptyMap()
+        private set
+
+    /**
      * Fetch + parse the EPG, unless data is still fresh.
      *
      * @return the number of programmes stored, or 0 if skipped.
@@ -74,9 +87,32 @@ class EpgFetchService @Inject constructor(
 
             // Stream the response body directly into the parser —
             // this avoids buffering the entire 156 MB into a String.
-            body.byteStream().use { stream ->
-                parser.parseAndStore(stream)
+            val result = body.byteStream().use { stream ->
+                parser.parseAndStoreWithMetadata(stream)
             }
+
+            // Cache display names for the matcher.
+            lastParseDisplayNames = result.channelDisplayNames
+
+            // Log a coverage report.
+            Log.i(
+                TAG,
+                "EPG coverage report: " +
+                    "parsed ${result.channelElementCount} <channel> elements, " +
+                    "${result.programmesStored} programmes stored " +
+                    "(${result.programmesSkipped} skipped), " +
+                    "${result.distinctProgrammeChannelIds} distinct programme channel ids",
+            )
+            if (result.channelDisplayNames.isNotEmpty()) {
+                Log.d(
+                    TAG,
+                    "Sample XMLTV display names: " +
+                        result.channelDisplayNames.entries.take(10)
+                            .joinToString { "${it.key} = \"${it.value}\"" },
+                )
+            }
+
+            result.programmesStored
         }
     }
 }

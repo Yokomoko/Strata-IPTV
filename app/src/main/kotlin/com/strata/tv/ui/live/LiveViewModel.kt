@@ -39,12 +39,24 @@ import javax.inject.Inject
 class LiveViewModel @Inject constructor(
     private val channelDao: ChannelDao,
     private val contentDao: ContentDao,
-    private val programmeDao: ProgrammeDao,
+    internal val programmeDao: ProgrammeDao,
     private val epgFetchService: EpgFetchService,
 ) : ViewModel() {
 
     companion object {
         private const val TAG = "LiveViewModel"
+
+        /**
+         * Programme query window for the Now/Next display.
+         * A 4-hour window is enough for the 1D guide rows.
+         */
+        private const val NOW_NEXT_WINDOW_HOURS = 4L
+
+        /**
+         * Programme query window for the full EPG grid view.
+         * 12 hours provides a meaningful timeline for browsing.
+         */
+        const val GRID_WINDOW_HOURS = 12L
     }
 
     private val _epgLoading = MutableStateFlow(false)
@@ -124,12 +136,16 @@ class LiveViewModel @Inject constructor(
             val liveContent = contentDao.byType("live")
             val contentByContentId = liveContent.associateBy { it.contentId }
 
-            // Build the EPG matcher.
-            val matcher = EpgChannelMatcher.build(programmeDao)
+            // Build the EPG matcher, enriched with XMLTV display names
+            // when available from the last fetch.
+            val matcher = EpgChannelMatcher.build(
+                programmeDao = programmeDao,
+                xmltvDisplayNames = epgFetchService.lastParseDisplayNames,
+            )
 
             // Fetch programmes in a 4-hour window from now.
             val now = Instant.now()
-            val windowEnd = now.plus(4, ChronoUnit.HOURS)
+            val windowEnd = now.plus(NOW_NEXT_WINDOW_HOURS, ChronoUnit.HOURS)
             val programmes = programmeDao.inRange(now, windowEnd)
 
             // Group programmes by their XMLTV channel id for fast lookup.
@@ -170,8 +186,13 @@ class LiveViewModel @Inject constructor(
                         category = category,
                         nowTitle = nowProg?.title,
                         nowDescription = nowProg?.description,
+                        nowStartTime = nowProg?.startTime,
+                        nowEndTime = nowProg?.endTime,
                         nextTitle = nextProg?.title,
+                        nextStartTime = nextProg?.startTime,
+                        nextEndTime = nextProg?.endTime,
                         streamUrl = content.streamUrl,
+                        xmltvChannelId = xmltvId,
                     ),
                 )
             }
@@ -183,6 +204,17 @@ class LiveViewModel @Inject constructor(
 
             _channels.value = result
             _categories.value = listOf("All") + categorySet.sorted()
+
+            // Log coverage summary.
+            val withGuide = result.count { it.nowTitle != null }
+            val total = result.size
+            Log.i(
+                TAG,
+                "Guide refresh: $total channels, $withGuide with Now data " +
+                    "(${if (total > 0) (withGuide * 100 / total) else 0}% coverage). " +
+                    "XMLTV has ${matcher.xmltvChannelCount} channels. " +
+                    "Matcher: ${matcher.coverageSummary()}",
+            )
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to refresh guide", e)
         }
@@ -206,8 +238,14 @@ data class ChannelWithGuide(
     val category: String,
     val nowTitle: String?,
     val nowDescription: String?,
+    val nowStartTime: Instant? = null,
+    val nowEndTime: Instant? = null,
     val nextTitle: String?,
+    val nextStartTime: Instant? = null,
+    val nextEndTime: Instant? = null,
     val streamUrl: String,
+    /** The resolved XMLTV channel id, if matched. Used by the grid view. */
+    val xmltvChannelId: String? = null,
 )
 
 data class LiveUiState(

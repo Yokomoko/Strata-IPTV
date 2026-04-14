@@ -18,6 +18,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,14 +41,18 @@ import coil3.compose.AsyncImage
 import com.strata.tv.ui.theme.StrataColors
 
 /**
- * Live TV screen — 1D vertical list of channels with Now/Next info.
+ * Live TV screen — 1D vertical list of channels with Now/Next info,
+ * plus an optional EPG grid view toggle.
  *
  * Deliberately uses a flat [TvLazyColumn] instead of a 2D scrollable
- * grid.  The Flutter v1 TV Guide used a 2D grid and suffered from
- * endless D-pad navigation problems.  This layout gives trivial focus:
- * up/down between channels, right/select to play.
+ * grid for the default view.  The Flutter v1 TV Guide used a 2D grid
+ * and suffered from endless D-pad navigation problems.  This layout
+ * gives trivial focus: up/down between channels, right/select to play.
  *
- * Layout per row:
+ * The "Guide" toggle switches to [GuideGridScreen] which displays a
+ * horizontal programme timeline per channel.
+ *
+ * Layout per row (list view):
  * ```
  * [Logo] BBC One                    | NOW: BBC News at Six             | NEXT: The Repair Shop
  * ```
@@ -62,16 +69,19 @@ fun LiveScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val epgLoading by viewModel.epgLoading.collectAsState()
+    var showGrid by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(StrataColors.SurfaceVoid),
     ) {
-        // Header
+        // Header with view toggle
         LiveHeader(
             channelCount = state.channels.size,
             isLoading = epgLoading,
+            showGrid = showGrid,
+            onToggleGrid = { showGrid = !showGrid },
         )
 
         // Category chips
@@ -85,9 +95,15 @@ fun LiveScreen(
 
         Spacer(Modifier.height(4.dp))
 
-        // Channel list — the 1D TV Guide
+        // Channel list or grid
         if (state.channels.isEmpty() && !epgLoading) {
             EmptyState()
+        } else if (showGrid) {
+            GuideGridScreen(
+                channels = state.channels,
+                programmeDao = viewModel.programmeDao,
+                onPlayChannel = onPlayChannel,
+            )
         } else {
             TvLazyColumn(
                 contentPadding = PaddingValues(
@@ -112,8 +128,14 @@ fun LiveScreen(
 // Header
 // -------------------------------------------------------------------------
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun LiveHeader(channelCount: Int, isLoading: Boolean) {
+private fun LiveHeader(
+    channelCount: Int,
+    isLoading: Boolean,
+    showGrid: Boolean,
+    onToggleGrid: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -140,6 +162,29 @@ private fun LiveHeader(channelCount: Int, isLoading: Boolean) {
             color = StrataColors.TextTertiary,
             fontSize = 13.sp,
         )
+
+        Spacer(Modifier.weight(1f))
+
+        // View toggle: List / Grid
+        Surface(
+            onClick = onToggleGrid,
+            shape = ClickableSurfaceDefaults.shape(
+                shape = RoundedCornerShape(16.dp),
+            ),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = StrataColors.SurfaceRaised,
+                focusedContainerColor = StrataColors.AccentPrimaryBright,
+            ),
+            modifier = Modifier.height(32.dp),
+        ) {
+            Text(
+                text = if (showGrid) "List View" else "Grid View",
+                color = StrataColors.TextSecondary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            )
+        }
     }
 }
 
@@ -290,7 +335,7 @@ private fun ChannelRow(channel: ChannelWithGuide, onClick: () -> Unit) {
 // -------------------------------------------------------------------------
 
 @Composable
-private fun ChannelLogo(logoUrl: String, displayName: String) {
+internal fun ChannelLogo(logoUrl: String, displayName: String) {
     if (logoUrl.isNotBlank()) {
         AsyncImage(
             model = logoUrl,
@@ -376,7 +421,7 @@ private fun EmptyState() {
     }
 }
 
-private val LOGO_PALETTE = listOf(
+internal val LOGO_PALETTE = listOf(
     Color(0xFF3F2A56),
     Color(0xFF1F4068),
     Color(0xFF4F2828),

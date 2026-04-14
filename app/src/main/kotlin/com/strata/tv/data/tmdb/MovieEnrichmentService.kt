@@ -32,10 +32,11 @@ class MovieEnrichmentService @Inject constructor(
     private val tracker: EnrichmentProgressTracker,
 ) {
 
-    /** Run both enrichment passes, looping until all items are done. */
+    /** Run all enrichment passes, looping until all items are done. */
     suspend fun enrichBatch() {
         searchPassAll()
         detailPassAll()
+        providerPassAll()
     }
 
     // -----------------------------------------------------------------
@@ -119,6 +120,11 @@ class MovieEnrichmentService @Inject constructor(
                         ?.substring(0, 4)
                         ?.toIntOrNull(),
                 )
+                // Also set provider if watch/providers returned data.
+                val provider = pickProvider(detail.watchProviders)
+                if (provider.isNotBlank()) {
+                    movieDao.updateProvider(movie.contentId, provider)
+                }
             }.onFailure { e ->
                 // Search succeeded earlier — don't lose poster data.
                 // Just log and continue to the next title.
@@ -127,6 +133,38 @@ class MovieEnrichmentService @Inject constructor(
             }
             tracker.advance()
             delay(PACE_MS)
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Pass 3 — provider: streaming service from watch/providers
+    // -----------------------------------------------------------------
+
+    private suspend fun providerPassAll() {
+        while (true) {
+            val pending = movieDao.needingProviderLookup(limit = 50)
+            if (pending.isEmpty()) break
+            tracker.addWork(pending.size)
+            for (movie in pending) {
+                runCatching {
+                    val detail = tmdb.movieDetail(
+                        id = movie.tmdbId,
+                        apiKey = AppConfig.TMDB_API_KEY,
+                        append = "watch/providers",
+                    )
+                    val provider = pickProvider(detail.watchProviders)
+                    if (provider.isNotBlank()) {
+                        movieDao.updateProvider(movie.contentId, provider)
+                    } else {
+                        // Mark as "Unknown" so we don't re-query.
+                        movieDao.updateProvider(movie.contentId, "Unknown")
+                    }
+                }.onFailure { e ->
+                    Log.w(TAG, "Provider lookup failed for tmdbId=${movie.tmdbId}: ${e.message}")
+                }
+                tracker.advance()
+                delay(PACE_MS)
+            }
         }
     }
 
@@ -161,6 +199,17 @@ class MovieEnrichmentService @Inject constructor(
          * Extracts the US certification from TMDB's `release_dates`
          * wrapper.  Falls back to empty string when there's no US entry.
          */
+        /**
+         * Extracts the first flatrate streaming provider, preferring GB
+         * over US.  Returns the provider name (e.g. "Netflix") or "".
+         */
+        fun pickProvider(wrapper: TmdbWatchProvidersWrapper?): String {
+            val results = wrapper?.results ?: return ""
+            // Prefer GB, fall back to US.
+            val country = results["GB"] ?: results["US"] ?: return ""
+            return country.flatrate.firstOrNull()?.providerName ?: ""
+        }
+
         fun pickUsCertification(wrapper: TmdbReleaseDatesWrapper?): String =
             wrapper?.results
                 ?.firstOrNull { it.iso == "US" }

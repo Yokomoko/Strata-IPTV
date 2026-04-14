@@ -37,15 +37,15 @@ interface TmdbApi {
     suspend fun movieDetail(
         @Path("id") id: Int,
         @Query("api_key") apiKey: String,
-        @Query("append_to_response") append: String = "credits,release_dates",
+        @Query("append_to_response") append: String = "credits,release_dates,watch/providers",
     ): TmdbMovieDetail
 
-    /** TV detail with credits + content ratings (for certification). */
+    /** TV detail with credits + content ratings + watch providers. */
     @GET("tv/{id}")
     suspend fun tvDetail(
         @Path("id") id: Int,
         @Query("api_key") apiKey: String,
-        @Query("append_to_response") append: String = "credits,content_ratings",
+        @Query("append_to_response") append: String = "credits,content_ratings,watch/providers",
     ): TmdbTvDetail
 }
 
@@ -106,6 +106,7 @@ data class TmdbMovieDetail(
     val genres: List<TmdbGenre> = emptyList(),
     val credits: TmdbCredits? = null,
     @SerialName("release_dates") val releaseDates: TmdbReleaseDatesWrapper? = null,
+    @SerialName("watch/providers") val watchProviders: TmdbWatchProvidersWrapper? = null,
 )
 
 @Serializable
@@ -155,6 +156,7 @@ data class TmdbTvDetail(
     val genres: List<TmdbGenre> = emptyList(),
     val credits: TmdbCredits? = null,
     @SerialName("content_ratings") val contentRatings: TmdbContentRatingsWrapper? = null,
+    @SerialName("watch/providers") val watchProviders: TmdbWatchProvidersWrapper? = null,
 )
 
 @Serializable
@@ -166,4 +168,24 @@ data class TmdbContentRatingsWrapper(
 data class TmdbContentRating(
     @SerialName("iso_3166_1") val iso: String,
     val rating: String = "",
+)
+
+// ---------------------------------------------------------------------------
+// Watch providers (append_to_response=watch/providers)
+// ---------------------------------------------------------------------------
+
+@Serializable
+data class TmdbWatchProvidersWrapper(
+    val results: Map<String, TmdbCountryProviders> = emptyMap(),
+)
+
+@Serializable
+data class TmdbCountryProviders(
+    val flatrate: List<TmdbProvider> = emptyList(),
+)
+
+@Serializable
+data class TmdbProvider(
+    @SerialName("provider_name") val providerName: String,
+    @SerialName("provider_id") val providerId: Int,
 )

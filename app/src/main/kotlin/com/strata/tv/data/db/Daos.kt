@@ -178,6 +178,20 @@ interface MovieDao {
     )
     suspend fun distinctMovieGroupTitles(): List<String>
 
+    /** Movies by TMDB provider — lightweight projection for Home rails. */
+    @Query(
+        """
+        SELECT id, content_id, movie_title, year, runtime, genre,
+               poster_url, resume_position_ms, watched, is_favourite,
+               language, rating, provider, tmdb_id, hidden
+        FROM movies WHERE hidden = 0 AND poster_url != '' AND provider = :provider
+          AND (year IS NULL OR year BETWEEN 1900 AND 2030)
+        ORDER BY rating DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun byProviderForList(provider: String, limit: Int = 20): List<MovieListItem>
+
     /** Movies by group_title (provider) — joined with content_items. */
     @Query(
         """

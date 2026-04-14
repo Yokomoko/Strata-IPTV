@@ -155,53 +155,23 @@ class HomeViewModel @Inject constructor(
 
     private suspend fun buildProviderRails() {
         try {
-            val groupTitles = movieDao.distinctMovieGroupTitles()
-            // Extract a clean provider name from group_title.
-            // Common patterns: "UK | Netflix Movies", "VOD | US | Disney+", etc.
-            val providerMap = mutableMapOf<String, String>() // cleanName → rawGroupTitle
-            for (raw in groupTitles) {
-                val clean = extractProviderName(raw)
-                if (clean.isNotBlank() && clean !in providerMap) {
-                    providerMap[clean] = raw
-                }
-            }
-            // Deduplicate: prefer UK variants over US.
-            val seen = mutableSetOf<String>()
-            val ukFirst = providerMap.entries.sortedBy { entry ->
-                // UK entries sort first (lower = higher priority).
-                if (entry.value.contains("UK", ignoreCase = true)) 0 else 1
-            }
-            val rails = mutableListOf<HomeProviderRail>()
-            for ((cleanName, rawGroupTitle) in ukFirst) {
-                val key = cleanName.lowercase()
-                if (!seen.add(key)) continue
-                val movies = movieDao.byGroupTitle(rawGroupTitle, limit = 20)
+            val providers = movieDao.countsByProvider()
+            // Skip "Unknown" and take top 6 by count.
+            val topProviders = providers
+                .filter { it.provider != "Unknown" && it.provider.isNotBlank() }
+                .sortedByDescending { it.count }
+                .take(6)
+
+            val rails = topProviders.mapNotNull { prov ->
+                val movies = movieDao.byProviderForList(prov.provider, limit = 20)
                 if (movies.size >= 3) {
-                    rails.add(HomeProviderRail("New on $cleanName", movies))
-                }
-                if (rails.size >= 6) break
+                    HomeProviderRail("New on ${prov.provider}", movies)
+                } else null
             }
             _providerRails.value = rails
         } catch (e: Throwable) {
             Log.w("HomeViewModel", "Provider rail build failed", e)
         }
-    }
-
-    /** Extract a human-friendly provider name from an M3U group_title. */
-    private fun extractProviderName(groupTitle: String): String {
-        // Split by | and take the last meaningful segment.
-        val parts = groupTitle.split("|").map { it.trim() }
-        // Filter out country codes and generic words.
-        val skip = setOf("UK", "US", "VOD", "MOVIES", "SHOWS", "TV", "4K", "HD", "FHD")
-        val candidate = parts.lastOrNull { part ->
-            val upper = part.uppercase()
-            upper !in skip && upper.length > 2
-        } ?: parts.lastOrNull() ?: groupTitle
-
-        // Strip trailing "Movies" / "Shows" from the provider name.
-        return candidate
-            .replace(Regex("\\s*(Movies|Shows|Series|Films)\\s*$", RegexOption.IGNORE_CASE), "")
-            .trim()
     }
 }
 

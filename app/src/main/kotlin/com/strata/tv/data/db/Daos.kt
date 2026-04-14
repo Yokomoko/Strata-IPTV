@@ -135,6 +135,39 @@ interface MovieDao {
         tmdbId: Int,
     )
 
+    /** Persist the richer detail fields from a TMDB /movie/{id} call. */
+    @Query(
+        """
+        UPDATE movies SET overview = :overview, backdrop_url = :backdropUrl,
+            cast = :cast, certification = :certification,
+            runtime = CASE WHEN :runtime IS NOT NULL THEN :runtime ELSE runtime END,
+            genre = CASE WHEN :genre != '' THEN :genre ELSE genre END,
+            year = CASE WHEN :year IS NOT NULL THEN :year ELSE year END
+        WHERE content_id = :contentId
+        """,
+    )
+    suspend fun updateDetail(
+        contentId: String,
+        overview: String,
+        backdropUrl: String,
+        cast: String,
+        certification: String,
+        runtime: Int?,
+        genre: String,
+        year: Int?,
+    )
+
+    /** Movies that have a TMDB ID but are missing detail enrichment. */
+    @Query(
+        """
+        SELECT * FROM movies
+        WHERE tmdb_id > 0 AND hidden = 0
+          AND (overview = '' OR backdrop_url = '')
+        LIMIT :limit
+        """,
+    )
+    suspend fun needingDetailEnrichment(limit: Int = 200): List<MovieEntity>
+
     @Query("UPDATE movies SET provider = :provider WHERE content_id = :contentId")
     suspend fun updateProvider(contentId: String, provider: String)
 
@@ -176,10 +209,22 @@ interface SeriesDao {
     @Query("SELECT * FROM series WHERE poster_url = '' AND hidden = 0 LIMIT :limit")
     suspend fun needingEnrichment(limit: Int = 200): List<SeriesEntity>
 
+    /** Series with a TMDB ID but missing detail enrichment fields. */
+    @Query(
+        """
+        SELECT * FROM series
+        WHERE tmdb_id > 0 AND hidden = 0
+          AND (plot = '' OR backdrop_url = '')
+        LIMIT :limit
+        """,
+    )
+    suspend fun needingDetailEnrichment(limit: Int = 200): List<SeriesEntity>
+
     @Query(
         """
         UPDATE series SET poster_url = :poster, backdrop_url = :backdrop,
-            plot = :plot, genre = :genre,
+            plot = :plot, genre = :genre, language = :language,
+            hidden = :hidden, tmdb_id = :tmdbId,
             total_seasons = :totalSeasons, total_episodes = :totalEpisodes
         WHERE series_title = :title
         """,
@@ -190,8 +235,31 @@ interface SeriesDao {
         backdrop: String,
         plot: String,
         genre: String,
+        language: String,
+        hidden: Boolean,
+        tmdbId: Int,
         totalSeasons: Int,
         totalEpisodes: Int,
+    )
+
+    /** Persist the richer detail fields from a TMDB /tv/{id} call. */
+    @Query(
+        """
+        UPDATE series SET plot = :plot, backdrop_url = :backdropUrl,
+            cast = :cast, certification = :certification,
+            genre = CASE WHEN :genre != '' THEN :genre ELSE genre END,
+            first_air_year = CASE WHEN :firstAirYear IS NOT NULL THEN :firstAirYear ELSE first_air_year END
+        WHERE series_title = :title
+        """,
+    )
+    suspend fun updateDetail(
+        title: String,
+        plot: String,
+        backdropUrl: String,
+        cast: String,
+        certification: String,
+        genre: String,
+        firstAirYear: Int?,
     )
 
     @Query("UPDATE series SET hidden = 1 WHERE series_title = :title")

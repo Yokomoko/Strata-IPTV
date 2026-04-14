@@ -46,6 +46,11 @@ object AppModule {
         )
             // Default WAL mode is fine — large EPG writes don't block
             // concurrent reads from the home screen.
+            //
+            // Pre-1.0: destructive migration is acceptable — there's no
+            // user data worth preserving yet.  The M3U sync repopulates
+            // the library on next launch and TMDB enrichment re-runs.
+            .fallbackToDestructiveMigration()
             .build()
     }
 

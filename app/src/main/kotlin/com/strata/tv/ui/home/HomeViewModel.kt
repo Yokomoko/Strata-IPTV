@@ -11,7 +11,10 @@ import com.strata.tv.data.db.MovieEntity
 import com.strata.tv.data.db.SeriesDao
 import com.strata.tv.data.repo.BootstrapRepository
 import com.strata.tv.data.repo.SyncService
+import com.strata.tv.data.tmdb.MovieEnrichmentService
+import com.strata.tv.data.tmdb.SeriesEnrichmentService
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -35,6 +38,8 @@ import javax.inject.Inject
 class HomeViewModel @Inject constructor(
     private val bootstrap: BootstrapRepository,
     private val syncService: SyncService,
+    private val movieEnrichment: MovieEnrichmentService,
+    private val seriesEnrichment: SeriesEnrichmentService,
     private val movieDao: MovieDao,
     private val seriesDao: SeriesDao,
     private val channelDao: ChannelDao,
@@ -71,6 +76,11 @@ class HomeViewModel @Inject constructor(
             if (firstCount == 0) {
                 runCatching { syncService.syncFromUrl(AppConfig.PLAYLIST_URL, sourceId) }
             }
+            // Kick off TMDB enrichment on IO — runs after sync so there
+            // are rows to enrich.  Fire-and-forget: failures are logged
+            // inside each service and never propagate to the UI.
+            launch(Dispatchers.IO) { runCatching { movieEnrichment.enrichBatch() } }
+            launch(Dispatchers.IO) { runCatching { seriesEnrichment.enrichBatch() } }
         }
     }
 }

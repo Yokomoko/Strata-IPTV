@@ -2,6 +2,7 @@ package com.strata.tv.data.tmdb
 
 import android.util.Log
 import com.strata.tv.AppConfig
+import com.strata.tv.data.db.EpisodeDao
 import com.strata.tv.data.db.SeriesDao
 import com.strata.tv.data.db.SeriesEntity
 import kotlinx.coroutines.delay
@@ -9,7 +10,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Two-pass TMDB enrichment for TV series — mirrors
+ * Three-pass TMDB enrichment for TV series — mirrors
  * [MovieEnrichmentService] but targets the `series` table.
  *
  * 1. **Search pass** — finds series missing poster, calls
@@ -19,18 +20,23 @@ import javax.inject.Singleton
  *    missing plot or backdrop, calls `/tv/{id}` with
  *    `append_to_response=credits,content_ratings` and persists
  *    plot, backdrop, cast, certification, first_air_year and genres.
+ * 3. **Episode name pass** — for series with a tmdbId whose episodes
+ *    still have empty titles, calls `/tv/{id}/season/{n}` for each
+ *    season and updates `episode_title` from the TMDB episode name.
  */
 @Singleton
 class SeriesEnrichmentService @Inject constructor(
     private val tmdb: TmdbApi,
     private val seriesDao: SeriesDao,
+    private val episodeDao: EpisodeDao,
     private val tracker: EnrichmentProgressTracker,
 ) {
 
-    /** Run both enrichment passes, looping until all items are done. */
+    /** Run all enrichment passes, looping until all items are done. */
     suspend fun enrichBatch() {
         searchPassAll()
         detailPassAll()
+        episodeNamePassAll()
     }
 
     // -----------------------------------------------------------------
@@ -53,8 +59,8 @@ class SeriesEnrichmentService @Inject constructor(
                     query = series.seriesTitle,
                 )
                 val match = response.results.firstOrNull() ?: return@runCatching
-                val isEnglish = match.originalLanguage.isNullOrEmpty() ||
-                    match.originalLanguage == "en"
+                val isWanted = match.originalLanguage.orEmpty() in
+                    MovieEnrichmentService.WANTED_LANGUAGES
 
                 seriesDao.updateMetadata(
                     title = series.seriesTitle,
@@ -67,7 +73,7 @@ class SeriesEnrichmentService @Inject constructor(
                     plot = match.overview.orEmpty(),
                     genre = match.genreIds.joinToString(", ") { tvGenreName(it) },
                     language = match.originalLanguage.orEmpty(),
-                    hidden = !isEnglish,
+                    hidden = !isWanted,
                     tmdbId = match.id,
                     totalSeasons = series.totalSeasons,
                     totalEpisodes = series.totalEpisodes,
@@ -122,6 +128,48 @@ class SeriesEnrichmentService @Inject constructor(
             }
             tracker.advance()
             delay(PACE_MS)
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Pass 3 — episode names: fetch season detail from TMDB
+    // -----------------------------------------------------------------
+
+    private suspend fun episodeNamePassAll() {
+        while (true) {
+            val pending = seriesDao.needingEpisodeNameEnrichment(limit = 50)
+            if (pending.isEmpty()) break
+            episodeNameBatch(pending)
+        }
+    }
+
+    private suspend fun episodeNameBatch(pending: List<SeriesEntity>) {
+        for (series in pending) {
+            val seasons = if (series.totalSeasons > 0) series.totalSeasons else 1
+            for (seasonNum in 1..seasons) {
+                runCatching {
+                    val seasonDetail = tmdb.tvSeason(
+                        id = series.tmdbId,
+                        season = seasonNum,
+                        apiKey = AppConfig.TMDB_API_KEY,
+                    )
+                    for (ep in seasonDetail.episodes) {
+                        if (ep.name.isNotBlank()) {
+                            episodeDao.updateName(
+                                series = series.seriesTitle,
+                                season = seasonNum,
+                                episode = ep.episodeNumber,
+                                title = ep.name,
+                            )
+                        }
+                    }
+                }.onFailure { e ->
+                    Log.w(TAG, "Episode names failed for '${series.seriesTitle}' " +
+                        "S${seasonNum}: ${e.message}")
+                }
+                delay(PACE_MS)
+            }
+            tracker.advance()
         }
     }
 

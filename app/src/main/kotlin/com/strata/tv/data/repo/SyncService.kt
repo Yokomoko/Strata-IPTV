@@ -322,7 +322,7 @@ class SyncService @Inject constructor(
                 episodeRows.add(
                     EpisodeEntity(
                         contentId = episodeContentId,
-                        seriesTitle = normalisedTitle,
+                        seriesTitle = titleForSeries,
                         seasonNumber = entry.seasonNumber ?: 0,
                         episodeNumber = entry.episodeNumber ?: 0,
                         streamUrl = entry.streamUrl,

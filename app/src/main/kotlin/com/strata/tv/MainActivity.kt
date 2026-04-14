@@ -18,7 +18,7 @@ import javax.inject.Inject
  *
  * Intercepts the Fire Stick remote's search button at the Activity
  * level — Fire OS grabs KEYCODE_SEARCH before Compose's key handlers
- * see it, so we override [onKeyDown] to route it to our Search tab.
+ * see it, so we override [dispatchKeyEvent] to route it to our Search tab.
  */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -26,7 +26,7 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var enrichmentTracker: EnrichmentProgressTracker
 
-    /** Retained across recompositions so onKeyDown can poke the nav. */
+    /** Retained across recompositions so dispatchKeyEvent can poke the nav. */
     private var navState: AppNavState? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,19 +40,27 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        // Fire Stick remote: search button, voice/Alexa button, and
-        // the generic assist key all route to our Search tab.
-        if (keyCode == KeyEvent.KEYCODE_SEARCH ||
-            keyCode == KeyEvent.KEYCODE_VOICE_ASSIST ||
-            keyCode == KeyEvent.KEYCODE_ASSIST
+    /**
+     * Intercept ALL key events for search/voice/assist buttons so that
+     * Fire OS never sees them — not on DOWN, not on UP, not on long-press.
+     * The previous [onKeyDown] override only caught ACTION_DOWN which let
+     * long-press and ACTION_UP leak through to the system search overlay.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode in setOf(
+                KeyEvent.KEYCODE_SEARCH,
+                KeyEvent.KEYCODE_VOICE_ASSIST,
+                KeyEvent.KEYCODE_ASSIST,
+            )
         ) {
-            navState?.let { nav ->
-                nav.navigate(Destination.Search)
-                runCatching { nav.contentRequester.requestFocus() }
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                navState?.let { nav ->
+                    nav.navigate(Destination.Search)
+                    runCatching { nav.contentRequester.requestFocus() }
+                }
             }
-            return true // consume — don't let Fire OS open system search
+            return true // consume both DOWN and UP — block Fire OS search
         }
-        return super.onKeyDown(keyCode, event)
+        return super.dispatchKeyEvent(event)
     }
 }

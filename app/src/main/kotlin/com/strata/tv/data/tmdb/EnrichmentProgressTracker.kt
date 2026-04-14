@@ -74,9 +74,10 @@ class EnrichmentProgressTracker @Inject constructor() {
         )
     }
 
-    /** Enrichment batch discovered — adds to the total. */
+    /** Enrichment batch discovered — adds to the total and re-enables ring. */
     fun addWork(count: Int) {
-        _progress.update { it.copy(total = it.total + count) }
+        if (count <= 0) return
+        _progress.update { it.copy(total = it.total + count, isRunning = true) }
     }
 
     /** One item enriched. */

@@ -21,6 +21,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,6 +45,7 @@ import com.strata.tv.data.db.MovieEntity
 import com.strata.tv.ui.nav.PlayerArgs
 import com.strata.tv.ui.theme.StrataColors
 import com.strata.tv.ui.widgets.GenreChips
+import com.strata.tv.ui.widgets.TrailerWebView
 import com.strata.tv.ui.widgets.MetadataChip
 import com.strata.tv.ui.widgets.ShimmerHero
 
@@ -102,6 +106,7 @@ private fun MovieDetailContent(
     onToggleWatchlist: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
+    var showTrailer by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // -- Full-bleed backdrop -----------------------------------------
@@ -292,6 +297,31 @@ private fun MovieDetailContent(
                     }
                 }
 
+                // Watch Trailer
+                if (movie.trailerUrl.isNotBlank()) {
+                    Surface(
+                        onClick = { showTrailer = true },
+                        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = StrataColors.SurfaceFloat,
+                            focusedContainerColor = StrataColors.SurfaceOverlay,
+                        ),
+                        modifier = Modifier.height(48.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "\u25B6  Trailer",
+                                color = StrataColors.TextPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    }
+                }
+
                 // Watchlist toggle
                 Surface(
                     onClick = onToggleWatchlist,
@@ -315,6 +345,15 @@ private fun MovieDetailContent(
                     }
                 }
             }
+        }
+
+        // -- Trailer WebView overlay ----------------------------------------
+        if (showTrailer && movie.trailerUrl.isNotBlank()) {
+            val youtubeKey = movie.trailerUrl.substringAfter("v=").substringBefore("&")
+            TrailerWebView(
+                youtubeKey = youtubeKey,
+                onDismiss = { showTrailer = false },
+            )
         }
     }
 }

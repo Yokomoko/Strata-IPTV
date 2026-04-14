@@ -2,8 +2,11 @@ package com.strata.tv.domain
 
 import android.util.Log
 import com.strata.tv.data.db.ContentDao
+import com.strata.tv.data.db.EpisodeDao
 import com.strata.tv.data.db.MovieDao
 import com.strata.tv.data.db.MovieEntity
+import com.strata.tv.data.db.SeriesDao
+import com.strata.tv.data.db.SeriesEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -40,6 +43,8 @@ import javax.inject.Singleton
 class MovieDeduplicator @Inject constructor(
     private val movieDao: MovieDao,
     private val contentDao: ContentDao,
+    private val seriesDao: SeriesDao,
+    private val episodeDao: EpisodeDao,
     private val http: OkHttpClient,
 ) {
 
@@ -215,6 +220,83 @@ class MovieDeduplicator @Inject constructor(
     }
 
     // -------------------------------------------------------------------------
+    // Series deduplication
+    // -------------------------------------------------------------------------
+
+    /**
+     * Deduplicate TV series that appear multiple times under different
+     * quality variants (HD, FHD, HEVC, etc.).
+     *
+     * The series table itself does not carry a quality prefix, so we
+     * sample a representative episode from each series and inspect its
+     * [ContentItemEntity.displayName] for quality keywords.
+     *
+     * Safe to call repeatedly — idempotent like [dedup].
+     *
+     * @return the number of series variants that were hidden.
+     */
+    suspend fun dedupSeries(): Int = withContext(Dispatchers.IO) {
+        val allSeries = seriesDao.allIncludingHidden()
+        if (allSeries.isEmpty()) return@withContext 0
+
+        // Group series by normalised title.
+        val groups = allSeries.groupBy { series ->
+            TitleParser.normalise(series.seriesTitle)
+        }
+
+        var hiddenCount = 0
+
+        for ((normTitle, variants) in groups) {
+            if (variants.size <= 1) {
+                // No duplicates — ensure the single entry is visible.
+                val only = variants.first()
+                if (only.hidden) {
+                    seriesDao.setHidden(only.seriesTitle, hidden = false)
+                }
+                continue
+            }
+
+            // Score each variant by looking up a sample episode's display name.
+            val scored = variants.map { series ->
+                val episode = episodeDao.firstOf(series.seriesTitle)
+                val displayName = if (episode != null) {
+                    contentDao.byContentId(episode.contentId)?.displayName.orEmpty()
+                } else ""
+                val quality = detectQuality(displayName)
+                ScoredSeries(series, quality, displayName)
+            }
+
+            // Pick the winner: highest quality, then prefer an enriched
+            // variant (has poster) over an unenriched one, then lower ID.
+            val winner = scored
+                .sortedWith(
+                    compareByDescending<ScoredSeries> { it.quality.ordinal }
+                        .thenByDescending { it.series.posterUrl.isNotEmpty() }
+                        .thenBy { it.series.id },
+                )
+                .first()
+
+            for (sm in scored) {
+                val shouldHide = sm.series.id != winner.series.id
+                if (sm.series.hidden != shouldHide) {
+                    seriesDao.setHidden(sm.series.seriesTitle, hidden = shouldHide)
+                }
+                if (shouldHide) hiddenCount++
+            }
+
+            Log.d(
+                TAG,
+                "Dedup series '$normTitle': ${variants.size} variants, " +
+                    "winner=${winner.quality.name} (id=${winner.series.id}), " +
+                    "hidden ${variants.size - 1}",
+            )
+        }
+
+        Log.i(TAG, "Series dedup complete: $hiddenCount variants hidden across ${groups.size} titles")
+        hiddenCount
+    }
+
+    // -------------------------------------------------------------------------
     // Quality detection
     // -------------------------------------------------------------------------
 
@@ -292,6 +374,12 @@ class MovieDeduplicator @Inject constructor(
 
     private data class ScoredMovie(
         val movie: MovieEntity,
+        val quality: Quality,
+        val displayName: String,
+    )
+
+    private data class ScoredSeries(
+        val series: SeriesEntity,
         val quality: Quality,
         val displayName: String,
     )

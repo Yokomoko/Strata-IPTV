@@ -97,8 +97,8 @@ fun LiveScreen(
         Spacer(Modifier.height(8.dp))
 
         // Channel list or grid
-        if (state.channels.isEmpty() && !epgLoading) {
-            EmptyState()
+        if (state.channels.isEmpty()) {
+            LoadingState()
         } else if (showGrid) {
             GuideGridScreen(
                 channels = state.channels,
@@ -440,21 +440,21 @@ private fun NowNextColumn(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun EmptyState() {
+private fun LoadingState() {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = "No channels yet",
+                text = "Loading TV Guide\u2026",
                 color = StrataColors.TextSecondary,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Medium,
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "Sync your playlist from the Home screen first.",
+                text = "Building channel list and guide data",
                 color = StrataColors.TextTertiary,
                 fontSize = 13.sp,
             )

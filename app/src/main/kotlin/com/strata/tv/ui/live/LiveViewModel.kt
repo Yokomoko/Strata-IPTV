@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -95,7 +96,14 @@ class LiveViewModel @Inject constructor(
     )
 
     init {
-        // Kick off the EPG fetch (once, only if stale).
+        // 1. Show channels immediately (no EPG data yet) so the user
+        //    doesn't stare at "No channels" while the EPG fetches.
+        viewModelScope.launch {
+            refreshGuide()
+        }
+
+        // 2. EPG fetch in parallel — when done, refresh to overlay
+        //    now/next programme data onto the already-visible channels.
         viewModelScope.launch {
             try {
                 _epgLoading.value = true
@@ -105,11 +113,10 @@ class LiveViewModel @Inject constructor(
             } finally {
                 _epgLoading.value = false
             }
-            // After fetch (or skip), build the guide.
             refreshGuide()
         }
 
-        // Also react to channel list changes from Room.
+        // 3. React to channel list changes from Room (e.g. after a sync).
         viewModelScope.launch {
             channelDao.watchAll().collect {
                 refreshGuide()
@@ -132,7 +139,7 @@ class LiveViewModel @Inject constructor(
      */
     private suspend fun refreshGuide() {
         try {
-            val channels = channelDao.watchAll().stateIn(viewModelScope).value
+            val channels = channelDao.watchAll().first()
             val liveContent = contentDao.byType("live")
             val contentByContentId = liveContent.associateBy { it.contentId }
 

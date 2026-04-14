@@ -22,8 +22,8 @@ import javax.inject.Inject
  *
  * The user types into the text field → [onQueryChanged] updates the
  * internal query flow → after a 250 ms debounce the flow fires,
- * calling [ContentDao.search] (SQLite LIKE pre-filter, max 200 rows)
- * and then ranking each hit with [FuzzyMatch.fuzzyScore].
+ * calling [ContentDao.searchRaw] (word-split LIKE pre-filter, max 500
+ * rows) and then ranking each hit with [FuzzyMatch.fuzzyScore].
  *
  * Show episodes are deduplicated by their parsed series title so that
  * searching "Breaking" returns one "Breaking Bad" entry instead of 60

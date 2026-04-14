@@ -128,23 +128,23 @@ fun PosterCard(
                             ),
                         ),
                     )
-                    .padding(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 8.dp),
+                    .padding(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 12.dp),
             ) {
                 Text(
                     text = title,
                     color = Color.White,
-                    fontSize = 13.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = 16.sp,
+                    lineHeight = 14.sp,
                 )
                 if (!subtitle.isNullOrBlank()) {
-                    Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(1.dp))
                     Text(
                         text = subtitle,
                         color = StrataColors.TextTertiary,
-                        fontSize = 10.sp,
+                        fontSize = 9.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )

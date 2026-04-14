@@ -49,6 +49,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.strata.tv.ui.nav.AppNavState
+import com.strata.tv.ui.nav.ChannelPlayInfo
 import com.strata.tv.ui.nav.PlayerArgs
 import com.strata.tv.ui.theme.StrataColors
 
@@ -106,6 +107,20 @@ fun LiveScreen(
                 onPlayChannel = onPlayChannel,
             )
         } else {
+            // Build channel play info list for D-pad switching.
+            val channelPlayList = remember(state.channels) {
+                state.channels.map { ch ->
+                    ChannelPlayInfo(
+                        contentId = ch.channelEntity.contentId,
+                        streamUrl = ch.streamUrl,
+                        displayName = ch.displayName,
+                        logoUrl = ch.logoUrl,
+                        nowTitle = ch.nowTitle,
+                        nextTitle = ch.nextTitle,
+                    )
+                }
+            }
+
             TvLazyColumn(
                 contentPadding = PaddingValues(
                     start = 40.dp,
@@ -118,6 +133,7 @@ fun LiveScreen(
                     items = state.channels,
                     key = { it.channelEntity.contentId },
                 ) { channel ->
+                    val channelIndex = state.channels.indexOf(channel)
                     ChannelRow(
                         channel = channel,
                         onPlay = {
@@ -128,6 +144,8 @@ fun LiveScreen(
                                     isLive = true,
                                     contentType = "live",
                                     artworkUrl = channel.logoUrl,
+                                    channelList = channelPlayList,
+                                    currentIndex = channelIndex,
                                 ),
                             )
                         },

@@ -1,16 +1,21 @@
 package com.strata.tv.ui.player
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.strata.tv.data.db.ContentDao
 import com.strata.tv.data.db.ContinueWatchingDao
 import com.strata.tv.data.db.ContinueWatchingEntity
+import com.strata.tv.data.db.EpisodeDao
+import com.strata.tv.data.db.EpisodeEntity
 import com.strata.tv.data.db.WatchHistoryDao
 import com.strata.tv.data.db.WatchHistoryEntity
+import com.strata.tv.ui.nav.ChannelPlayInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -43,6 +48,8 @@ class PlayerViewModel @Inject constructor(
     application: Application,
     private val cwDao: ContinueWatchingDao,
     private val historyDao: WatchHistoryDao,
+    private val episodeDao: EpisodeDao,
+    private val contentDao: ContentDao,
 ) : AndroidViewModel(application) {
 
     // ── ExoPlayer ────────────────────────────────────────────────────
@@ -67,6 +74,17 @@ class PlayerViewModel @Inject constructor(
     private var resumePositionMs: Long = 0L
     private var contentType: String = ""
     private var artworkUrl: String = ""
+
+    // ── Series context for next-episode autoplay ────────────────────
+    private var seriesTitle: String? = null
+    private var seasonNumber: Int? = null
+    private var episodeNumber: Int? = null
+    private var countdownJob: Job? = null
+
+    // ── Channel switching (live) ────────────────────────────────────
+    private var channelList: List<ChannelPlayInfo> = emptyList()
+    private var currentChannelIndex: Int = 0
+    private var overlayHideJob: Job? = null
 
     // ── Player listener ──────────────────────────────────────────────
 
@@ -94,6 +112,7 @@ class PlayerViewModel @Inject constructor(
 
             if (ended) {
                 saveFullContinueWatching()
+                maybeStartAutoplay()
             }
         }
 
@@ -137,6 +156,9 @@ class PlayerViewModel @Inject constructor(
         resumePositionMs: Long,
         contentType: String,
         artworkUrl: String,
+        seriesTitle: String? = null,
+        seasonNumber: Int? = null,
+        episodeNumber: Int? = null,
     ) {
         // No-op if the caller is re-asserting the same stream we're
         // already set up for (e.g. a recomposition that doesn't change
@@ -151,6 +173,12 @@ class PlayerViewModel @Inject constructor(
         this.resumePositionMs = resumePositionMs
         this.contentType = contentType
         this.artworkUrl = artworkUrl
+        this.seriesTitle = seriesTitle
+        this.seasonNumber = seasonNumber
+        this.episodeNumber = episodeNumber
+
+        // Cancel any pending autoplay from the previous episode.
+        cancelAutoplay()
 
         // Reset per-stream state so the resume-seek fires once for the
         // new URL and buffering spinner shows until STATE_READY.
@@ -182,6 +210,140 @@ class PlayerViewModel @Inject constructor(
         val duration = player.duration.coerceAtLeast(0)
         val target = (current + deltaMs).coerceIn(0, duration)
         player.seekTo(target)
+    }
+
+    /**
+     * Set the live channel list for D-pad channel switching.
+     * Called once from the composable after it receives the player args.
+     */
+    fun setChannelList(channels: List<ChannelPlayInfo>, index: Int) {
+        channelList = channels
+        currentChannelIndex = index.coerceIn(0, (channels.size - 1).coerceAtLeast(0))
+    }
+
+    /**
+     * Switch to the next (+1) or previous (-1) channel in the list.
+     * Wraps around at both ends.  Returns the new [ChannelPlayInfo]
+     * so the screen can update its displayed title, or null if the
+     * list is empty / not in live mode.
+     */
+    fun switchChannel(delta: Int): ChannelPlayInfo? {
+        if (channelList.isEmpty() || !isLive) return null
+        val newIndex = (currentChannelIndex + delta).mod(channelList.size)
+        currentChannelIndex = newIndex
+        val channel = channelList[newIndex]
+
+        // Re-initialize the player with the new stream.
+        initialize(
+            streamUrl = channel.streamUrl,
+            title = channel.displayName,
+            isLive = true,
+            resumePositionMs = 0L,
+            contentType = "live",
+            artworkUrl = channel.logoUrl,
+        )
+
+        // Show channel overlay.
+        showChannelOverlay()
+
+        return channel
+    }
+
+    /** Current channel info for the overlay, or null if not in live/channel-list mode. */
+    fun currentChannel(): ChannelPlayInfo? {
+        if (channelList.isEmpty()) return null
+        return channelList.getOrNull(currentChannelIndex)
+    }
+
+    // ── Channel overlay visibility ──────────────────────────────────
+
+    fun showChannelOverlay() {
+        _uiState.update { it.copy(channelOverlayVisible = true) }
+        overlayHideJob?.cancel()
+        overlayHideJob = viewModelScope.launch {
+            delay(4_000)
+            _uiState.update { it.copy(channelOverlayVisible = false) }
+        }
+    }
+
+    fun hideChannelOverlay() {
+        overlayHideJob?.cancel()
+        _uiState.update { it.copy(channelOverlayVisible = false) }
+    }
+
+    // ── Next episode autoplay ──────────────────────────────────────
+
+    /**
+     * When a show episode ends and we know the series context, look up
+     * the next episode and start a 10-second countdown.  At zero the
+     * player auto-transitions to the next stream.
+     */
+    private fun maybeStartAutoplay() {
+        val series = seriesTitle ?: return
+        val season = seasonNumber ?: return
+        val episode = episodeNumber ?: return
+        if (contentType != "show" || isLive) return
+
+        viewModelScope.launch {
+            val next = episodeDao.nextEpisode(series, season, episode)
+            if (next == null) {
+                Log.d("PlayerVM", "No next episode for $series S${season}E${episode}")
+                return@launch
+            }
+
+            val nextUrl = next.streamUrl.ifBlank {
+                contentDao.byContentId(next.contentId)?.streamUrl ?: ""
+            }
+            if (nextUrl.isBlank()) return@launch
+
+            _uiState.update {
+                it.copy(
+                    nextEpisode = NextEpisodeInfo(
+                        seriesTitle = series,
+                        seasonNumber = next.seasonNumber,
+                        episodeNumber = next.episodeNumber,
+                        episodeTitle = next.episodeTitle,
+                        countdown = 10,
+                    ),
+                )
+            }
+
+            countdownJob = launch {
+                for (tick in 9 downTo 0) {
+                    delay(1_000)
+                    if (!isActive) return@launch
+                    _uiState.update { state ->
+                        state.copy(
+                            nextEpisode = state.nextEpisode?.copy(countdown = tick),
+                        )
+                    }
+                }
+
+                // Countdown reached zero -- play the next episode.
+                _uiState.update { it.copy(nextEpisode = null) }
+                initialize(
+                    streamUrl = nextUrl,
+                    title = "$series S${next.seasonNumber}E${next.episodeNumber}",
+                    isLive = false,
+                    resumePositionMs = 0L,
+                    contentType = "show",
+                    artworkUrl = artworkUrl,
+                    seriesTitle = series,
+                    seasonNumber = next.seasonNumber,
+                    episodeNumber = next.episodeNumber,
+                )
+            }
+        }
+    }
+
+    /**
+     * Cancel the autoplay countdown (e.g. when the user presses Back
+     * during the "Next Episode" overlay).
+     */
+    fun cancelAutoplay() {
+        countdownJob?.cancel()
+        countdownJob = null
+        _uiState.update { it.copy(nextEpisode = null) }
     }
 
     /**
@@ -290,6 +452,8 @@ class PlayerViewModel @Inject constructor(
     override fun onCleared() {
         saveJob?.cancel()
         hideJob?.cancel()
+        overlayHideJob?.cancel()
+        countdownJob?.cancel()
         player.removeListener(playerListener)
         player.release()
         super.onCleared()
@@ -305,4 +469,18 @@ data class PlayerUiState(
     val isBuffering: Boolean = true,
     val controlsVisible: Boolean = true,
     val errorMessage: String? = null,
+    val channelOverlayVisible: Boolean = false,
+    /** Non-null while the next-episode countdown is active. */
+    val nextEpisode: NextEpisodeInfo? = null,
+)
+
+/**
+ * Info shown in the "Next Episode" autoplay overlay.
+ */
+data class NextEpisodeInfo(
+    val seriesTitle: String,
+    val seasonNumber: Int,
+    val episodeNumber: Int,
+    val episodeTitle: String,
+    val countdown: Int,
 )

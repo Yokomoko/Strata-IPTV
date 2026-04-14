@@ -37,7 +37,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,6 +60,7 @@ import androidx.media3.ui.PlayerView
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
+import com.strata.tv.ui.nav.ChannelPlayInfo
 import com.strata.tv.ui.theme.StrataColors
 
 /**
@@ -76,11 +79,19 @@ fun PlayerScreen(
     resumePositionMs: Long,
     contentType: String,
     artworkUrl: String,
+    channelList: List<ChannelPlayInfo> = emptyList(),
+    currentChannelIndex: Int = 0,
+    seriesTitle: String? = null,
+    seasonNumber: Int? = null,
+    episodeNumber: Int? = null,
     onExit: () -> Unit,
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
     val focusRequester = remember { FocusRequester() }
+
+    // Track the current display title for live channel switching.
+    var displayTitle by remember { mutableStateOf(title) }
 
     LaunchedEffect(Unit) {
         viewModel.initialize(
@@ -90,7 +101,13 @@ fun PlayerScreen(
             resumePositionMs = resumePositionMs,
             contentType = contentType,
             artworkUrl = artworkUrl,
+            seriesTitle = seriesTitle,
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber,
         )
+        if (channelList.isNotEmpty()) {
+            viewModel.setChannelList(channelList, currentChannelIndex)
+        }
     }
 
     val view = LocalView.current
@@ -118,7 +135,11 @@ fun PlayerScreen(
                 }
                 when (event.nativeKeyEvent.keyCode) {
                     KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
-                        exitHandler()
+                        if (state.nextEpisode != null) {
+                            viewModel.cancelAutoplay()
+                        } else {
+                            exitHandler()
+                        }
                         true
                     }
                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
@@ -136,6 +157,26 @@ fun PlayerScreen(
                         viewModel.seekRelative(30_000)
                         viewModel.showControls()
                         true
+                    }
+                    KeyEvent.KEYCODE_DPAD_UP -> {
+                        if (isLive && channelList.isNotEmpty()) {
+                            val ch = viewModel.switchChannel(-1)
+                            if (ch != null) displayTitle = ch.displayName
+                            true
+                        } else {
+                            viewModel.showControls()
+                            false
+                        }
+                    }
+                    KeyEvent.KEYCODE_DPAD_DOWN -> {
+                        if (isLive && channelList.isNotEmpty()) {
+                            val ch = viewModel.switchChannel(+1)
+                            if (ch != null) displayTitle = ch.displayName
+                            true
+                        } else {
+                            viewModel.showControls()
+                            false
+                        }
                     }
                     else -> {
                         viewModel.showControls()
@@ -259,7 +300,7 @@ fun PlayerScreen(
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(
-                        text = title,
+                        text = displayTitle,
                         color = Color.White,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -375,6 +416,21 @@ fun PlayerScreen(
                 }
             }
         }
+
+        // -- Channel switch overlay (top banner) -------------------------
+        if (isLive && channelList.isNotEmpty()) {
+            ChannelOverlay(
+                visible = state.channelOverlayVisible,
+                channel = viewModel.currentChannel(),
+                channelIndex = currentChannelIndex,
+                channelCount = channelList.size,
+            )
+        }
+
+        // -- Next episode autoplay overlay (bottom-right) ---------------
+        state.nextEpisode?.let { next ->
+            NextEpisodeOverlay(next = next)
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -393,6 +449,99 @@ private fun formatTime(ms: Long): String {
         String.format("%d:%02d:%02d", hours, minutes, seconds)
     } else {
         String.format("%d:%02d", minutes, seconds)
+    }
+}
+
+// -- Next episode autoplay overlay ----------------------------------------
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun NextEpisodeOverlay(next: NextEpisodeInfo) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.BottomEnd,
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(32.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(StrataColors.SurfaceRaised.copy(alpha = 0.92f))
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "Next Episode",
+                color = StrataColors.TextTertiary,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.5.sp,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = next.seriesTitle,
+                color = StrataColors.TextPrimary,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = buildString {
+                    append("S${next.seasonNumber}E${next.episodeNumber}")
+                    if (next.episodeTitle.isNotBlank()) {
+                        append(" \u2013 ${next.episodeTitle}")
+                    }
+                },
+                color = StrataColors.TextSecondary,
+                fontSize = 13.sp,
+                maxLines = 1,
+            )
+            Spacer(Modifier.height(12.dp))
+            CountdownRing(
+                seconds = next.countdown,
+                modifier = Modifier.size(48.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Press BACK to cancel",
+                color = StrataColors.TextTertiary,
+                fontSize = 11.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CountdownRing(
+    seconds: Int,
+    modifier: Modifier = Modifier,
+) {
+    val sweepAngle = (seconds / 10f) * 360f
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Canvas(modifier = Modifier.matchParentSize()) {
+            // Background ring
+            drawArc(
+                color = Color.White.copy(alpha = 0.15f),
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
+            )
+            // Countdown arc
+            drawArc(
+                color = StrataColors.AccentPrimary,
+                startAngle = -90f,
+                sweepAngle = sweepAngle,
+                useCenter = false,
+                style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
+            )
+        }
+        Text(
+            text = "$seconds",
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 

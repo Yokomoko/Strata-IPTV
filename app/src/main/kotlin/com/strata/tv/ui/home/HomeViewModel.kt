@@ -1,8 +1,14 @@
 package com.strata.tv.ui.home
 
+import android.app.Application
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.strata.tv.AppConfig
 import com.strata.tv.data.db.ChannelDao
 import com.strata.tv.data.db.ContentDao
@@ -17,6 +23,7 @@ import com.strata.tv.data.db.WatchlistDao
 import com.strata.tv.data.db.WatchlistEntity
 import com.strata.tv.data.repo.BootstrapRepository
 import com.strata.tv.data.repo.SyncService
+import com.strata.tv.data.repo.SyncWorker
 import com.strata.tv.data.tmdb.EnrichmentProgressTracker
 import com.strata.tv.data.tmdb.MovieEnrichmentService
 import com.strata.tv.data.tmdb.SeriesEnrichmentService
@@ -33,6 +40,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /**
@@ -45,6 +53,7 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class HomeViewModel @Inject constructor(
+    private val application: Application,
     private val bootstrap: BootstrapRepository,
     private val syncService: SyncService,
     private val movieDeduplicator: MovieDeduplicator,
@@ -137,19 +146,19 @@ class HomeViewModel @Inject constructor(
         watchlistDao.watchIsInWatchlist(contentId).first()
 
     init {
+        // Schedule periodic background sync via WorkManager (every 12h,
+        // network-required).  This replaces the old forced-every-launch
+        // sync and keeps the library fresh without blocking app start.
+        schedulePeriodicSync()
+
         viewModelScope.launch {
             val sourceId = bootstrap.ensureSource()
             enrichmentTracker.startSync()
 
-            // Only sync if this is the first run (0 movies) or the
-            // last sync was more than 24 hours ago.
+            // Only do an immediate sync if the DB is empty (first run)
+            // — periodic WorkManager handles the rest.
             val movieCount = movieDao.watchVisibleCount().first()
-            val source = sourceDao.all().firstOrNull()
-            val lastSynced = source?.lastSynced
-            val stale = lastSynced == null ||
-                Duration.between(lastSynced, Instant.now()).toHours() >= 24
-
-            if (movieCount == 0 || stale) {
+            if (movieCount == 0) {
                 runCatching { syncService.syncFromUrl(AppConfig.PLAYLIST_URL, sourceId) }
                     .onSuccess {
                         runCatching { sourceDao.markSynced(sourceId, Instant.now()) }

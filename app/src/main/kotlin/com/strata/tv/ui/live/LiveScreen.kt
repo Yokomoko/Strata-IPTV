@@ -43,6 +43,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.foundation.lazy.list.TvLazyColumn
 import androidx.tv.foundation.lazy.list.TvLazyRow
 import androidx.tv.foundation.lazy.list.items
+import androidx.tv.foundation.lazy.list.itemsIndexed
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Surface
@@ -129,11 +130,10 @@ fun LiveScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                items(
+                itemsIndexed(
                     items = state.channels,
-                    key = { it.channelEntity.contentId },
-                ) { channel ->
-                    val channelIndex = state.channels.indexOf(channel)
+                    key = { _, ch -> ch.channelEntity.contentId },
+                ) { channelIndex, channel ->
                     ChannelRow(
                         channel = channel,
                         onPlay = {

@@ -18,8 +18,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Streaming XMLTV parser that reads `<programme>` elements from an
- * [InputStream] and batch-upserts them into Room via [ProgrammeDao].
+ * Streaming XMLTV parser that reads `<channel>` and `<programme>`
+ * elements from an [InputStream] and batch-upserts programmes into
+ * Room via [ProgrammeDao].
  *
  * Design goals for a 156 MB feed on a Fire Stick (512 MB heap):
  *
@@ -72,12 +73,32 @@ class XmltvParser @Inject constructor(
     }
 
     /**
-     * Parse the XMLTV feed from [input] and write all `<programme>`
-     * elements into Room.  Runs entirely on [Dispatchers.IO].
-     *
-     * @return the total number of programmes upserted.
+     * Result of a parse operation, including the display name map
+     * extracted from `<channel>` elements for use in EPG matching.
      */
-    suspend fun parseAndStore(input: InputStream): Int = withContext(Dispatchers.IO) {
+    data class ParseResult(
+        /** Total programmes upserted into Room. */
+        val programmesStored: Int,
+        /** Total programmes skipped (unparseable). */
+        val programmesSkipped: Int,
+        /** XMLTV channel id -> display name, from `<channel>` elements. */
+        val channelDisplayNames: Map<String, String>,
+        /** Total `<channel>` elements parsed. */
+        val channelElementCount: Int,
+        /** Distinct XMLTV channel ids seen across all `<programme>` elements. */
+        val distinctProgrammeChannelIds: Int,
+    )
+
+    /**
+     * Parse the XMLTV feed from [input] and write all `<programme>`
+     * elements into Room.  Also extracts `<channel>` display names
+     * for use by the EPG matcher.
+     *
+     * Runs entirely on [Dispatchers.IO].
+     *
+     * @return a [ParseResult] with counts and the channel display name map.
+     */
+    suspend fun parseAndStoreWithMetadata(input: InputStream): ParseResult = withContext(Dispatchers.IO) {
         val factory = XmlPullParserFactory.newInstance()
         factory.isNamespaceAware = false
         val xpp = factory.newPullParser()
@@ -86,24 +107,37 @@ class XmltvParser @Inject constructor(
         val batch = ArrayList<ProgrammeEntity>(BATCH_SIZE)
         var totalStored = 0
         var totalSkipped = 0
+        val channelDisplayNames = mutableMapOf<String, String>()
+        val programmeChannelIds = mutableSetOf<String>()
 
         var eventType = xpp.eventType
         while (eventType != XmlPullParser.END_DOCUMENT) {
-            if (eventType == XmlPullParser.START_TAG && xpp.name == "programme") {
-                val entity = parseProgramme(xpp)
-                if (entity != null) {
-                    batch.add(entity)
-                    if (batch.size >= BATCH_SIZE) {
-                        ensureActive()
-                        programmeDao.upsertAll(batch.toList())
-                        totalStored += batch.size
-                        batch.clear()
-                        if (totalStored % 5000 == 0) {
-                            Log.d(TAG, "Stored $totalStored programmes so far")
+            if (eventType == XmlPullParser.START_TAG) {
+                when (xpp.name) {
+                    "channel" -> {
+                        val (id, displayName) = parseChannel(xpp)
+                        if (id.isNotEmpty() && displayName.isNotEmpty()) {
+                            channelDisplayNames.putIfAbsent(id, displayName)
                         }
                     }
-                } else {
-                    totalSkipped++
+                    "programme" -> {
+                        val entity = parseProgramme(xpp)
+                        if (entity != null) {
+                            programmeChannelIds.add(entity.channelId)
+                            batch.add(entity)
+                            if (batch.size >= BATCH_SIZE) {
+                                ensureActive()
+                                programmeDao.upsertAll(batch.toList())
+                                totalStored += batch.size
+                                batch.clear()
+                                if (totalStored % 5000 == 0) {
+                                    Log.d(TAG, "Stored $totalStored programmes so far")
+                                }
+                            }
+                        } else {
+                            totalSkipped++
+                        }
+                    }
                 }
             }
             eventType = xpp.next()
@@ -115,8 +149,73 @@ class XmltvParser @Inject constructor(
             totalStored += batch.size
         }
 
-        Log.d(TAG, "Parse complete: $totalStored stored, $totalSkipped skipped")
-        totalStored
+        Log.d(
+            TAG,
+            "Parse complete: $totalStored stored, $totalSkipped skipped, " +
+                "${channelDisplayNames.size} channel display names, " +
+                "${programmeChannelIds.size} distinct programme channel ids",
+        )
+        ParseResult(
+            programmesStored = totalStored,
+            programmesSkipped = totalSkipped,
+            channelDisplayNames = channelDisplayNames,
+            channelElementCount = channelDisplayNames.size,
+            distinctProgrammeChannelIds = programmeChannelIds.size,
+        )
+    }
+
+    /**
+     * Legacy entry point — parse and store, returning only the count.
+     * Delegates to [parseAndStoreWithMetadata].
+     */
+    suspend fun parseAndStore(input: InputStream): Int {
+        return parseAndStoreWithMetadata(input).programmesStored
+    }
+
+    // -----------------------------------------------------------------
+    // Internal: parse a single <channel> element
+    // -----------------------------------------------------------------
+
+    /**
+     * Parse a `<channel>` element to extract its id and first
+     * `<display-name>`.
+     *
+     * XMLTV `<channel>` elements look like:
+     * ```xml
+     * <channel id="bbc.one.uk">
+     *   <display-name>BBC One</display-name>
+     *   <icon src="https://..." />
+     * </channel>
+     * ```
+     *
+     * Returns a pair of (id, displayName).  If either is missing,
+     * returns empty strings.
+     */
+    private fun parseChannel(xpp: XmlPullParser): Pair<String, String> {
+        val id = xpp.getAttributeValue(null, "id") ?: return "" to ""
+        var displayName = ""
+
+        var depth = 1
+        while (depth > 0) {
+            val event = xpp.next()
+            when (event) {
+                XmlPullParser.START_TAG -> {
+                    depth++
+                    when (xpp.name) {
+                        "display-name" -> {
+                            if (displayName.isEmpty()) {
+                                displayName = readText(xpp)
+                                depth-- // readText consumes the end tag
+                            }
+                        }
+                    }
+                }
+                XmlPullParser.END_TAG -> depth--
+                XmlPullParser.END_DOCUMENT -> break
+            }
+        }
+
+        return id to displayName
     }
 
     // -----------------------------------------------------------------

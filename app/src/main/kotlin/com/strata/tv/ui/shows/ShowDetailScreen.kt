@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -174,6 +176,13 @@ private fun ShowDetailContent(
                 .verticalScroll(scrollState)
                 .padding(start = 32.dp, end = 32.dp, top = 60.dp, bottom = 48.dp),
         ) {
+            // Invisible anchor: D-pad Up from top content scrolls back to hero.
+            Spacer(
+                Modifier
+                    .height(1.dp)
+                    .onFocusChanged { if (it.isFocused) scope.launch { scrollState.animateScrollTo(0) } }
+                    .focusable()
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Top,

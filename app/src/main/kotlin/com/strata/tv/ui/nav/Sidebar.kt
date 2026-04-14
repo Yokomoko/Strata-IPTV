@@ -60,10 +60,12 @@ fun Sidebar(
         runCatching { itemRequesters.getValue(selected).requestFocus() }
     }
 
-    Box(
+    Column(
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
             .fillMaxHeight()
-            .width(64.dp)
+            .width(56.dp)
             .focusRequester(sidebarFocusRequester)
             .background(
                 Brush.verticalGradient(
@@ -73,32 +75,26 @@ fun Sidebar(
                         1.0f to Color(0xFF0E0E16),
                     ),
                 ),
-            ),
-    ) {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier
-                .fillMaxHeight()
-                .padding(vertical = 20.dp),
-        ) {
-            // Brand dot
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(StrataColors.AccentPrimary),
             )
-            Spacer(Modifier.height(20.dp))
+            .padding(vertical = 12.dp),
+    ) {
+        // Brand dot
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(StrataColors.AccentPrimary),
+        )
+        Spacer(Modifier.height(16.dp))
 
-            for (destination in Destination.entries) {
-                SidebarItem(
-                    destination = destination,
-                    isSelected = destination == selected,
-                    focusRequester = itemRequesters.getValue(destination),
-                    onClick = { onSelected(destination) },
-                )
-            }
+        for (destination in Destination.entries) {
+            SidebarItem(
+                destination = destination,
+                isSelected = destination == selected,
+                focusRequester = itemRequesters.getValue(destination),
+                onClick = { onSelected(destination) },
+            )
+            Spacer(Modifier.height(4.dp))
         }
     }
 }
@@ -119,7 +115,7 @@ private fun SidebarItem(
     Surface(
         onClick = onClick,
         modifier = Modifier
-            .size(48.dp)
+            .size(40.dp)
             .focusRequester(focusRequester)
             .onFocusChanged { isFocused = it.isFocused }
             .then(
@@ -145,7 +141,7 @@ private fun SidebarItem(
             Icon(
                 imageVector = if (active) destination.selectedIcon else destination.icon,
                 contentDescription = destination.label,
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
     }

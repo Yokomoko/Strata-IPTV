@@ -72,20 +72,19 @@ fun HomeScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val sync by viewModel.syncProgress.collectAsState()
-    val featured = rememberFeaturedState()
 
-    Box(modifier = modifier.fillMaxSize()) {
-        ImmersiveBackdrop(state = featured)
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState()),
-        ) {
+    // The hero carousel renders its own backdrop + gradients, so we
+    // don't layer an ImmersiveBackdrop behind the whole screen — that
+    // caused a double-image "cut off and repeat" artefact.
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(StrataColors.SurfaceVoid)
+            .verticalScroll(rememberScrollState()),
+    ) {
             // -- Hero carousel -------------------------------------------
             HeroCarousel(
                 movies = state.recentMovies.take(5),
-                onFeaturedChanged = { featured.setFeatured(it) },
                 onMovieClick = { movie ->
                     onNavigate?.openMovieDetail(movie.contentId)
                 },
@@ -93,7 +92,7 @@ fun HomeScreen(
 
             SyncBanner(sync)
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(24.dp))
 
             // -- Rails ---------------------------------------------------
             val isLoading = state.recentMovies.isEmpty() &&
@@ -108,7 +107,7 @@ fun HomeScreen(
                 ) { _, item ->
                     CwCard(
                         item = item,
-                        onFocused = { featured.setFeatured(item.toFeatured()) },
+                        onFocused = {},
                         onClick = {
                             onNavigate?.openPlayer(
                                 com.strata.tv.ui.nav.PlayerArgs(
@@ -133,7 +132,7 @@ fun HomeScreen(
                 ) { _, item ->
                     MovieCard(
                         movie = item,
-                        onFocused = { featured.setFeatured(item.toFeatured()) },
+                        onFocused = {},
                         onClick = {
                             onNavigate?.openMovieDetail(item.contentId)
                         },
@@ -144,8 +143,7 @@ fun HomeScreen(
                 ShimmerRail()
             }
 
-            Spacer(Modifier.height(48.dp))
-        }
+        Spacer(Modifier.height(48.dp))
     }
 }
 
@@ -157,7 +155,6 @@ fun HomeScreen(
 @Composable
 private fun HeroCarousel(
     movies: List<MovieListItem>,
-    onFeaturedChanged: (Featured) -> Unit,
     onMovieClick: (MovieListItem) -> Unit,
 ) {
     if (movies.isEmpty()) {
@@ -176,11 +173,6 @@ private fun HeroCarousel(
             delay(6_000)
             currentIndex = (currentIndex + 1) % movies.size
         }
-    }
-
-    // Push featured state
-    LaunchedEffect(currentIndex) {
-        onFeaturedChanged(movie.toFeatured())
     }
 
     Box(
@@ -254,7 +246,7 @@ private fun HeroCarousel(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 32.dp, bottom = 24.dp, end = 160.dp),
+                .padding(start = 32.dp, bottom = 56.dp, end = 160.dp),
         ) {
             Text(
                 text = movie.movieTitle,

@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.strata.tv.AppConfig
 import com.strata.tv.data.db.ChannelDao
+import com.strata.tv.data.db.ContentDao
 import com.strata.tv.data.db.ContinueWatchingDao
 import com.strata.tv.data.db.ContinueWatchingEntity
 import com.strata.tv.data.db.MovieDao
@@ -45,6 +46,7 @@ class HomeViewModel @Inject constructor(
     private val movieEnrichment: MovieEnrichmentService,
     private val seriesEnrichment: SeriesEnrichmentService,
     private val enrichmentTracker: EnrichmentProgressTracker,
+    private val contentDao: ContentDao,
     private val movieDao: MovieDao,
     private val seriesDao: SeriesDao,
     private val channelDao: ChannelDao,
@@ -131,9 +133,19 @@ class HomeViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             val sourceId = bootstrap.ensureSource()
-            val firstCount = movieDao.watchVisibleCount().first()
-            if (firstCount == 0) {
-                runCatching { syncService.syncFromUrl(AppConfig.PLAYLIST_URL, sourceId) }
+            // Force a re-sync to pick up the episode-pattern classifier
+            // fix and new channel categories. This runs every launch but
+            // the sync service skips the download if data is recent enough.
+            // TODO: remove forced sync once the DB has correct data.
+            runCatching { syncService.syncFromUrl(AppConfig.PLAYLIST_URL, sourceId) }
+
+            // Diagnostic: log content counts by type
+            launch(Dispatchers.IO) {
+                val allContent = contentDao.byType("movie")
+                val showContent = contentDao.byType("show")
+                val liveContent = contentDao.byType("live")
+                val seriesCount = seriesDao.watchCount().first()
+                android.util.Log.w("HomeVM", "[DB] movies=${allContent.size} shows=${showContent.size} live=${liveContent.size} series=$seriesCount")
             }
 
             // Kick off enrichment.

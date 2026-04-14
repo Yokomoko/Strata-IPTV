@@ -52,6 +52,7 @@ class M3uParser(private val batchSize: Int = 500) {
         var totalSkipped = 0
 
         var currentExtinf: String? = null
+        val seenGroupMappings = mutableSetOf<String>()
         // Cooperative yield so a long parse doesn't block whatever
         // coroutine context we're running on (e.g. an IO worker).
         var sinceYield = 0
@@ -71,6 +72,12 @@ class M3uParser(private val batchSize: Int = 500) {
                 currentExtinf != null && line.startsWith("http") -> {
                     val entry = parseEntry(currentExtinf!!, line)
                     if (entry != null) {
+                        // Debug: log first occurrence of each group→type mapping
+                        val mapKey = "${entry.groupTitle}→${entry.contentType}"
+                        if (mapKey !in seenGroupMappings) {
+                            seenGroupMappings.add(mapKey)
+                            android.util.Log.w("M3uParser", "[Classify] group='${entry.groupTitle}' → ${entry.contentType} (sample: '${entry.displayName.take(60)}')")
+                        }
                         batch.add(entry)
                         totalParsed++
                     } else {
@@ -189,23 +196,28 @@ class M3uParser(private val batchSize: Int = 500) {
         if (tvgType == "movie") return ContentType.Movie
         if (tvgType == "series") return ContentType.Show
 
-        // 2. Group-title keywords (the provider's own categorisation).
+        // 2. Episode pattern in the title — MUST run before group-title
+        //    keywords because some M3U providers use a single "Movie VOD"
+        //    group for ALL VOD content including shows.  A title like
+        //    "HD: The Other Bennet Sister S01E01" must be classified as
+        //    a Show even when the group says "Movie".
+        if (TitleParser.parseEpisode(displayName) != null) return ContentType.Show
+
+        // 3. URL structure (Xtream-style providers).
+        if ("/series/" in url) return ContentType.Show
+        if ("/movie/" in url) return ContentType.Movie
+
+        // 4. Group-title keywords (the provider's own categorisation).
         val groupLower = groupTitle.lowercase()
-        if ("movie" in groupLower || "film" in groupLower) return ContentType.Movie
         if ("series" in groupLower || "tv vod" in groupLower || "shows" in groupLower) {
             return ContentType.Show
         }
+        if ("movie" in groupLower || "film" in groupLower) return ContentType.Movie
 
-        // 3. URL structure (Xtream-style providers).
-        if ("/movie/" in url) return ContentType.Movie
-        if ("/series/" in url) return ContentType.Show
-
-        // 4. Title pattern fallback — costs a regex match per call,
-        //    so it sits last.
-        if (TitleParser.parseEpisode(displayName) != null) return ContentType.Show
+        // 5. Movie year pattern fallback.
         if (TitleParser.parseMovie(displayName) != null) return ContentType.Movie
 
-        // 5. Default: live channel.
+        // 6. Default: live channel.
         return ContentType.Live
     }
 

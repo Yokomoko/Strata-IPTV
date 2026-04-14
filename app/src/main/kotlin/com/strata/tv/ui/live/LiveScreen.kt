@@ -146,7 +146,10 @@ fun LiveScreen(
             GuideGridScreen(
                 channels = state.channels,
                 programmeDao = viewModel.programmeDao,
-                onPlayChannel = onPlayChannel,
+                onPlayChannel = { channel ->
+                    viewModel.markChannelWatched(channel.channelEntity.contentId)
+                    onPlayChannel(channel)
+                },
             )
         } else {
             TvLazyColumn(

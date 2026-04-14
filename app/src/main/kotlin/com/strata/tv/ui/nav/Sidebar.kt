@@ -1,5 +1,6 @@
 package com.strata.tv.ui.nav
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -26,8 +27,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,10 +45,8 @@ import com.strata.tv.ui.theme.StrataColors
 
 /**
  * Premium streaming-app sidebar — icon-only rail with a subtle active
- * indicator pill and an accent dot at the top as a brand mark.
- *
- * 64dp wide, dark gradient background, generous vertical spacing.
- * D-pad up/down between items via Compose's directional focus traversal.
+ * indicator pill, brand dot at the top, and an enrichment progress
+ * ring at the bottom when TMDB metadata is being fetched.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -52,6 +55,8 @@ fun Sidebar(
     onSelected: (Destination) -> Unit,
     sidebarFocusRequester: FocusRequester,
     modifier: Modifier = Modifier,
+    enrichmentProgress: Float = 0f,
+    enrichmentRunning: Boolean = false,
 ) {
     val itemRequesters = remember {
         Destination.entries.associateWith { FocusRequester() }
@@ -97,8 +102,18 @@ fun Sidebar(
             )
             Spacer(Modifier.height(4.dp))
         }
+
+        // Enrichment progress ring at the bottom
+        if (enrichmentRunning) {
+            Spacer(Modifier.height(12.dp))
+            EnrichmentRing(progress = enrichmentProgress)
+        }
     }
 }
+
+// -------------------------------------------------------------------------
+// Sidebar item
+// -------------------------------------------------------------------------
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -150,7 +165,7 @@ private fun SidebarItem(
         }
     }
 
-    // Active indicator — small pill below the selected item
+    // Active indicator pill
     if (isSelected) {
         Box(
             modifier = Modifier
@@ -158,6 +173,58 @@ private fun SidebarItem(
                 .size(width = 16.dp, height = 3.dp)
                 .clip(RoundedCornerShape(2.dp))
                 .background(StrataColors.AccentPrimary),
+        )
+    }
+}
+
+// -------------------------------------------------------------------------
+// Enrichment progress ring — circular arc + percentage
+// -------------------------------------------------------------------------
+
+@Composable
+private fun EnrichmentRing(progress: Float) {
+    val percent = (progress * 100).toInt().coerceIn(0, 100)
+    val sweepAngle = progress * 360f
+    val trackColor = StrataColors.SurfaceRaised
+    val ringColor = StrataColors.AccentSecondary
+
+    Box(
+        modifier = Modifier.size(36.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(modifier = Modifier.size(36.dp)) {
+            val strokeWidth = 3.dp.toPx()
+            val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
+            val topLeft = Offset(strokeWidth / 2, strokeWidth / 2)
+
+            // Background track
+            drawArc(
+                color = trackColor,
+                startAngle = 0f,
+                sweepAngle = 360f,
+                useCenter = false,
+                topLeft = topLeft,
+                size = arcSize,
+                style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
+            )
+
+            // Progress arc
+            drawArc(
+                color = ringColor,
+                startAngle = -90f,
+                sweepAngle = sweepAngle,
+                useCenter = false,
+                topLeft = topLeft,
+                size = arcSize,
+                style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
+            )
+        }
+
+        Text(
+            text = "$percent",
+            color = StrataColors.TextSecondary,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
         )
     }
 }

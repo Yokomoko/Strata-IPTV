@@ -23,6 +23,7 @@ import javax.inject.Singleton
 class SeriesEnrichmentService @Inject constructor(
     private val tmdb: TmdbApi,
     private val seriesDao: SeriesDao,
+    private val tracker: EnrichmentProgressTracker,
 ) {
 
     /** Run both enrichment passes back-to-back. */
@@ -37,6 +38,7 @@ class SeriesEnrichmentService @Inject constructor(
 
     private suspend fun searchPass() {
         val pending = seriesDao.needingEnrichment(limit = 100)
+        tracker.addWork(pending.size)
         for (series in pending) {
             runCatching {
                 val response = tmdb.searchTv(
@@ -66,6 +68,7 @@ class SeriesEnrichmentService @Inject constructor(
             }.onFailure { e ->
                 Log.w(TAG, "Search failed for '${series.seriesTitle}': ${e.message}")
             }
+            tracker.advance()
             delay(PACE_MS)
         }
     }
@@ -76,6 +79,7 @@ class SeriesEnrichmentService @Inject constructor(
 
     private suspend fun detailPass() {
         val pending = seriesDao.needingDetailEnrichment(limit = 100)
+        tracker.addWork(pending.size)
         for (series in pending) {
             runCatching {
                 val detail = tmdb.tvDetail(
@@ -103,6 +107,7 @@ class SeriesEnrichmentService @Inject constructor(
                 Log.w(TAG, "Detail failed for tmdbId=${series.tmdbId} " +
                     "'${series.seriesTitle}': ${e.message}")
             }
+            tracker.advance()
             delay(PACE_MS)
         }
     }

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -14,6 +15,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import com.strata.tv.data.tmdb.EnrichmentProgressTracker
 import com.strata.tv.ui.home.HomeScreen
 import com.strata.tv.ui.live.LiveScreen
 import com.strata.tv.ui.movies.MovieDetailScreen
@@ -33,8 +35,10 @@ import com.strata.tv.ui.theme.StrataColors
 @Composable
 fun Shell(
     nav: AppNavState = rememberAppNavState(),
+    enrichmentTracker: EnrichmentProgressTracker? = null,
 ) {
     var sidebarHasFocus by remember { mutableStateOf(true) }
+    val enrichmentProgress = enrichmentTracker?.progress?.collectAsState()?.value
 
     LaunchedEffect(Unit) {
         runCatching { nav.sidebarRequester.requestFocus() }
@@ -101,6 +105,8 @@ fun Shell(
             onSelected = { nav.navigate(it) },
             sidebarFocusRequester = nav.sidebarRequester,
             modifier = Modifier.onFocusChanged { sidebarHasFocus = it.hasFocus },
+            enrichmentProgress = enrichmentProgress?.fraction ?: 0f,
+            enrichmentRunning = enrichmentProgress?.isRunning == true,
         )
 
         Box(

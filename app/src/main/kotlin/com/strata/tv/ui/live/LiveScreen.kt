@@ -107,7 +107,7 @@ fun LiveScreen(
         } else {
             TvLazyColumn(
                 contentPadding = PaddingValues(
-                    start = 24.dp,
+                    start = 40.dp,
                     end = 24.dp,
                     bottom = 24.dp,
                 ),

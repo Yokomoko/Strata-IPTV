@@ -3,9 +3,11 @@ package com.strata.tv
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import com.strata.tv.data.tmdb.EnrichmentProgressTracker
 import com.strata.tv.ui.nav.Shell
 import com.strata.tv.ui.theme.StrataTheme
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 /**
  * Single-activity host for the Compose tree.
@@ -16,11 +18,15 @@ import dagger.hilt.android.AndroidEntryPoint
  */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var enrichmentTracker: EnrichmentProgressTracker
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             StrataTheme {
-                Shell()
+                Shell(enrichmentTracker = enrichmentTracker)
             }
         }
     }

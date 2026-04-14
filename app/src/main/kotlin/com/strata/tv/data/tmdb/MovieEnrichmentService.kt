@@ -28,6 +28,7 @@ import javax.inject.Singleton
 class MovieEnrichmentService @Inject constructor(
     private val tmdb: TmdbApi,
     private val movieDao: MovieDao,
+    private val tracker: EnrichmentProgressTracker,
 ) {
 
     /** Run both enrichment passes back-to-back. */
@@ -42,6 +43,7 @@ class MovieEnrichmentService @Inject constructor(
 
     private suspend fun searchPass() {
         val pending = movieDao.needingEnrichment(limit = 100)
+        tracker.addWork(pending.size)
         for (movie in pending) {
             runCatching {
                 val response = tmdb.searchMovie(
@@ -66,6 +68,7 @@ class MovieEnrichmentService @Inject constructor(
             }.onFailure { e ->
                 Log.w(TAG, "Search failed for '${movie.movieTitle}': ${e.message}")
             }
+            tracker.advance()
             delay(PACE_MS)
         }
     }
@@ -76,6 +79,7 @@ class MovieEnrichmentService @Inject constructor(
 
     private suspend fun detailPass() {
         val pending = movieDao.needingDetailEnrichment(limit = 100)
+        tracker.addWork(pending.size)
         for (movie in pending) {
             runCatching {
                 val detail = tmdb.movieDetail(
@@ -106,6 +110,7 @@ class MovieEnrichmentService @Inject constructor(
                 Log.w(TAG, "Detail failed for tmdbId=${movie.tmdbId} " +
                     "'${movie.movieTitle}': ${e.message}")
             }
+            tracker.advance()
             delay(PACE_MS)
         }
     }

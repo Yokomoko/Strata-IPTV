@@ -53,16 +53,21 @@ interface ContentDao {
     suspend fun searchRaw(query: SupportSQLiteQuery): List<ContentItemEntity>
 
     companion object {
+        private val STOP_WORDS = setOf(
+            "the", "a", "an", "of", "in", "on", "at", "to", "for",
+            "is", "it", "and", "or", "by", "as", "be", "no", "so",
+        )
+
         /**
-         * Build a [SupportSQLiteQuery] that ORs a LIKE clause for each
-         * word in [query] (length >= 3) against the three searchable
-         * columns.  Falls back to the full query string if no words
-         * pass the length filter.
+         * Build a [SupportSQLiteQuery] that ANDs a LIKE clause for each
+         * significant word (>=3 chars, not a stop word) against the three
+         * searchable columns.  ALL words must match somewhere in the row,
+         * which avoids the "the" matching every row problem.
          */
         fun buildSearchQuery(query: String): SupportSQLiteQuery {
             val words = query.trim().lowercase()
                 .split(Regex("\\s+"))
-                .filter { it.length >= 2 }
+                .filter { it.length >= 3 && it !in STOP_WORDS }
                 .distinct()
 
             // Fall back to the raw query if no words survived filtering.
@@ -81,7 +86,7 @@ interface ContentDao {
                 args.add(pattern)
             }
 
-            val sql = "SELECT * FROM content_items WHERE ${clauses.joinToString(" OR ")} LIMIT 500"
+            val sql = "SELECT * FROM content_items WHERE ${clauses.joinToString(" AND ")} LIMIT 200"
             return SimpleSQLiteQuery(sql, args.toTypedArray())
         }
     }

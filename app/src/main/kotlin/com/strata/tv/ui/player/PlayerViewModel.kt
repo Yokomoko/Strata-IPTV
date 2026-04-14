@@ -4,9 +4,13 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import com.strata.tv.data.db.ContentDao
 import com.strata.tv.data.db.ContinueWatchingDao
@@ -86,6 +90,15 @@ class PlayerViewModel @Inject constructor(
     private var currentChannelIndex: Int = 0
     private var overlayHideJob: Job? = null
 
+    // ── Error retry ─────────────────────────────────────────────────
+    private var retryCount = 0
+    private var retryJob: Job? = null
+    private val maxRetries = 5
+
+    // ── Subtitle tracks ─────────────────────────────────────────────
+    private val _subtitleTracks = MutableStateFlow<List<SubtitleTrack>>(emptyList())
+    val subtitleTracks: StateFlow<List<SubtitleTrack>> = _subtitleTracks.asStateFlow()
+
     // ── Player listener ──────────────────────────────────────────────
 
     private val playerListener = object : Player.Listener {
@@ -131,9 +144,44 @@ class PlayerViewModel @Inject constructor(
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            _uiState.update {
-                it.copy(errorMessage = error.localizedMessage ?: "Playback error")
+            if (retryCount < maxRetries) {
+                retryCount++
+                val delayMs = (1000L * (1 shl (retryCount - 1).coerceAtMost(4)))
+                    .coerceAtMost(30_000L)
+                _uiState.update {
+                    it.copy(errorMessage = "Retrying... (attempt $retryCount/$maxRetries)")
+                }
+                retryJob = viewModelScope.launch {
+                    delay(delayMs)
+                    player.prepare()
+                }
+            } else {
+                _uiState.update {
+                    it.copy(errorMessage = error.localizedMessage ?: "Stream unavailable after $maxRetries retries")
+                }
             }
+        }
+
+        override fun onTracksChanged(tracks: Tracks) {
+            // Update available subtitle tracks when the stream's tracks change.
+            val subs = mutableListOf<SubtitleTrack>()
+            for (group in tracks.groups) {
+                if (group.type != C.TRACK_TYPE_TEXT) continue
+                for (i in 0 until group.length) {
+                    val format = group.getTrackFormat(i)
+                    val label = format.label
+                        ?: format.language?.uppercase()
+                        ?: "Track ${subs.size + 1}"
+                    subs.add(SubtitleTrack(
+                        groupIndex = tracks.groups.indexOf(group),
+                        trackIndex = i,
+                        label = label,
+                        isSelected = group.isTrackSelected(i),
+                    ))
+                }
+            }
+            _subtitleTracks.value = subs
+            _uiState.update { it.copy(subtitlesEnabled = subs.any { t -> t.isSelected }) }
         }
     }
 
@@ -180,9 +228,10 @@ class PlayerViewModel @Inject constructor(
         // Cancel any pending autoplay from the previous episode.
         cancelAutoplay()
 
-        // Reset per-stream state so the resume-seek fires once for the
-        // new URL and buffering spinner shows until STATE_READY.
+        // Reset per-stream state.
         resumeApplied = false
+        retryCount = 0
+        retryJob?.cancel()
         _uiState.update { it.copy(isBuffering = true, errorMessage = null) }
 
         if (firstTime) {
@@ -210,6 +259,39 @@ class PlayerViewModel @Inject constructor(
         val duration = player.duration.coerceAtLeast(0)
         val target = (current + deltaMs).coerceIn(0, duration)
         player.seekTo(target)
+    }
+
+    // ── Error retry API ─────────────────────────────────────────────
+
+    /** Manual retry — resets the count and immediately re-prepares. */
+    fun retryNow() {
+        retryJob?.cancel()
+        retryCount = 0
+        _uiState.update { it.copy(errorMessage = null, isBuffering = true) }
+        player.prepare()
+    }
+
+    // ── Subtitle API ────────────────────────────────────────────────
+
+    /** Select a specific subtitle track by its group and track index. */
+    fun selectSubtitleTrack(groupIndex: Int, trackIndex: Int) {
+        val group = player.currentTracks.groups.getOrNull(groupIndex) ?: return
+        val override = TrackSelectionOverride(group.mediaTrackGroup, trackIndex)
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setOverrideForType(override)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .build()
+        _uiState.update { it.copy(subtitlesEnabled = true) }
+    }
+
+    /** Disable all subtitle tracks. */
+    fun disableSubtitles() {
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            .build()
+        _uiState.update { it.copy(subtitlesEnabled = false) }
     }
 
     /**
@@ -470,8 +552,17 @@ data class PlayerUiState(
     val controlsVisible: Boolean = true,
     val errorMessage: String? = null,
     val channelOverlayVisible: Boolean = false,
+    val subtitlesEnabled: Boolean = false,
     /** Non-null while the next-episode countdown is active. */
     val nextEpisode: NextEpisodeInfo? = null,
+)
+
+/** A single subtitle/CC track available in the current stream. */
+data class SubtitleTrack(
+    val groupIndex: Int,
+    val trackIndex: Int,
+    val label: String,
+    val isSelected: Boolean,
 )
 
 /**

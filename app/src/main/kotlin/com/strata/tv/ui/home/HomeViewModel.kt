@@ -261,6 +261,31 @@ class HomeViewModel @Inject constructor(
             Log.w("HomeViewModel", "Provider rail build failed", e)
         }
     }
+
+    /**
+     * Enqueue a periodic WorkManager task that syncs the M3U playlist
+     * every 12 hours when a network connection is available.
+     * Uses [ExistingPeriodicWorkPolicy.KEEP] so re-entering the Home
+     * screen doesn't reset the schedule.
+     */
+    private fun schedulePeriodicSync() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        val request = PeriodicWorkRequestBuilder<SyncWorker>(
+            repeatInterval = 12,
+            repeatIntervalTimeUnit = TimeUnit.HOURS,
+        )
+            .setConstraints(constraints)
+            .build()
+
+        WorkManager.getInstance(application).enqueueUniquePeriodicWork(
+            SyncWorker.WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            request,
+        )
+    }
 }
 
 /** A provider-grouped rail for the Home screen. */

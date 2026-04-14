@@ -242,6 +242,46 @@ fun PlayerScreen(
                         color = StrataColors.TextSecondary,
                         fontSize = 14.sp,
                     )
+                    Spacer(Modifier.height(16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // Retry button
+                        androidx.tv.material3.Surface(
+                            onClick = { viewModel.retryNow() },
+                            shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(
+                                shape = RoundedCornerShape(8.dp),
+                            ),
+                            colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                                containerColor = StrataColors.AccentPrimary,
+                                focusedContainerColor = StrataColors.AccentPrimaryBright,
+                            ),
+                        ) {
+                            Text(
+                                text = "Retry Now",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                            )
+                        }
+                        // Back button
+                        androidx.tv.material3.Surface(
+                            onClick = { exitHandler() },
+                            shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(
+                                shape = RoundedCornerShape(8.dp),
+                            ),
+                            colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                                containerColor = StrataColors.SurfaceFloat,
+                                focusedContainerColor = StrataColors.SurfaceOverlay,
+                            ),
+                        ) {
+                            Text(
+                                text = "Go Back",
+                                color = StrataColors.TextPrimary,
+                                fontSize = 14.sp,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -307,8 +347,30 @@ fun PlayerScreen(
                         maxLines = 1,
                         modifier = Modifier.weight(1f),
                     )
+                    // CC toggle
+                    val subs by viewModel.subtitleTracks.collectAsState()
+                    if (subs.isNotEmpty()) {
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(
+                                    if (state.subtitlesEnabled) StrataColors.AccentPrimary
+                                    else StrataColors.SurfaceFloat,
+                                )
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                        ) {
+                            Text(
+                                text = "CC",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+
                     if (isLive) {
-                        Spacer(Modifier.width(12.dp))
+                        Spacer(Modifier.width(8.dp))
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))

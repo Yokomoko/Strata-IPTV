@@ -98,6 +98,36 @@ class HomeViewModel @Inject constructor(
     /** Sync progress, surfaced separately so the UI can show a banner. */
     val syncProgress: StateFlow<SyncService.Progress> = syncService.progress
 
+    // -- Context menu actions ---------------------------------------------
+
+    /** Remove a Continue Watching entry by its content ID. */
+    fun removeContinueWatching(contentId: String) {
+        viewModelScope.launch { cwDao.delete(contentId) }
+    }
+
+    /** Add a movie to the Watchlist. */
+    fun addToWatchlist(contentId: String, title: String, artworkUrl: String) {
+        viewModelScope.launch {
+            watchlistDao.add(
+                WatchlistEntity(
+                    contentId = contentId,
+                    contentType = "movie",
+                    title = title,
+                    artworkUrl = artworkUrl,
+                ),
+            )
+        }
+    }
+
+    /** Remove a movie from the Watchlist. */
+    fun removeFromWatchlist(contentId: String) {
+        viewModelScope.launch { watchlistDao.remove(contentId) }
+    }
+
+    /** Check if a movie is in the Watchlist (snapshot, not flow). */
+    suspend fun isInWatchlist(contentId: String): Boolean =
+        watchlistDao.watchIsInWatchlist(contentId).first()
+
     init {
         viewModelScope.launch {
             val sourceId = bootstrap.ensureSource()

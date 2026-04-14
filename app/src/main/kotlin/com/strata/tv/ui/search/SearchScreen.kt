@@ -19,12 +19,14 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
@@ -32,6 +34,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -50,6 +53,7 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.ListItem
+import androidx.tv.material3.ListItemDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.strata.tv.ui.nav.AppNavState
@@ -63,7 +67,7 @@ import com.strata.tv.ui.theme.StrataColors
  * Phase 9: upgraded typography, empty state with genre suggestions,
  * better visual hierarchy.
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun SearchScreen(
     modifier: Modifier = Modifier,
@@ -72,6 +76,14 @@ fun SearchScreen(
 ) {
     val query by viewModel.query.collectAsState()
     val uiState by viewModel.results.collectAsState()
+
+    // Dismiss soft keyboard when results appear or query changes to non-empty.
+    val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(uiState) {
+        if (uiState is SearchUiState.Results || uiState is SearchUiState.NoResults) {
+            keyboardController?.hide()
+        }
+    }
 
     Column(
         modifier = modifier
@@ -281,32 +293,7 @@ private fun ResultsList(state: SearchUiState.Results, onNavigate: AppNavState?) 
         contentPadding = PaddingValues(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        if (state.channels.isNotEmpty()) {
-            item { SectionHeader("Channels (${state.channels.size})") }
-            items(
-                items = state.channels.take(20),
-                key = { "ch:${it.contentId}" },
-            ) { result ->
-                ResultRow(
-                    result = result,
-                    icon = Icons.Outlined.LiveTv,
-                    iconColor = StrataColors.StatusLive,
-                    typeLabel = "LIVE",
-                    onClick = {
-                        onNavigate?.openPlayer(
-                            PlayerArgs(
-                                streamUrl = result.streamUrl,
-                                title = result.title,
-                                isLive = true,
-                                contentType = "live",
-                                artworkUrl = result.artworkUrl,
-                            ),
-                        )
-                    },
-                )
-            }
-        }
-
+        // Movies first — these are what most users are searching for.
         if (state.movies.isNotEmpty()) {
             item { SectionHeader("Movies (${state.movies.size})") }
             items(
@@ -325,6 +312,7 @@ private fun ResultsList(state: SearchUiState.Results, onNavigate: AppNavState?) 
             }
         }
 
+        // Shows second.
         if (state.shows.isNotEmpty()) {
             item { SectionHeader("Shows (${state.shows.size})") }
             items(
@@ -340,6 +328,33 @@ private fun ResultsList(state: SearchUiState.Results, onNavigate: AppNavState?) 
                         if (result.seriesTitle.isNotBlank()) {
                             onNavigate?.openShowDetail(result.seriesTitle)
                         }
+                    },
+                )
+            }
+        }
+
+        // Channels last, capped at 5 to avoid drowning out movie/show results.
+        if (state.channels.isNotEmpty()) {
+            item { SectionHeader("Channels (${state.channels.size})") }
+            items(
+                items = state.channels.take(5),
+                key = { "ch:${it.contentId}" },
+            ) { result ->
+                ResultRow(
+                    result = result,
+                    icon = Icons.Outlined.LiveTv,
+                    iconColor = StrataColors.StatusLive,
+                    typeLabel = "LIVE",
+                    onClick = {
+                        onNavigate?.openPlayer(
+                            PlayerArgs(
+                                streamUrl = result.streamUrl,
+                                title = result.title,
+                                isLive = true,
+                                contentType = "live",
+                                artworkUrl = result.artworkUrl,
+                            ),
+                        )
                     },
                 )
             }
@@ -376,12 +391,23 @@ private fun ResultRow(
     typeLabel: String,
     onClick: () -> Unit,
 ) {
+    // Use the clean title; fall back to raw displayName only when title is blank.
+    val displayText = result.title.ifBlank { result.displayName }
+
     ListItem(
         selected = false,
         onClick = onClick,
+        colors = ListItemDefaults.colors(
+            containerColor = StrataColors.SurfaceRaised,
+            contentColor = StrataColors.TextPrimary,
+            focusedContainerColor = StrataColors.SurfaceFloat,
+            focusedContentColor = StrataColors.TextPrimary,
+            selectedContainerColor = StrataColors.SurfaceFloat,
+            selectedContentColor = StrataColors.TextPrimary,
+        ),
         headlineContent = {
             Text(
-                text = result.title,
+                text = displayText,
                 color = StrataColors.TextPrimary,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,

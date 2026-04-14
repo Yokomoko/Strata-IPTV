@@ -31,6 +31,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import android.view.KeyEvent
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,6 +56,8 @@ import com.strata.tv.data.db.MovieListItem
 import com.strata.tv.data.repo.SyncService
 import com.strata.tv.ui.nav.AppNavState
 import com.strata.tv.ui.theme.StrataColors
+import com.strata.tv.ui.widgets.CardContextMenu
+import com.strata.tv.ui.widgets.ContextMenuAction
 import com.strata.tv.ui.widgets.Featured
 import com.strata.tv.ui.widgets.ImmersiveBackdrop
 import com.strata.tv.ui.widgets.PosterCard
@@ -85,6 +88,10 @@ fun HomeScreen(
 
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
+
+    // -- Context menu state -----------------------------------------------
+    var contextMenuVisible by remember { mutableStateOf(false) }
+    var contextMenuActions by remember { mutableStateOf<List<ContextMenuAction>>(emptyList()) }
 
     // The hero carousel renders its own backdrop + gradients, so we
     // don't layer an ImmersiveBackdrop behind the whole screen — that
@@ -134,22 +141,38 @@ fun HomeScreen(
                     accentColor = StrataColors.AccentSecondary,
                     items = state.continueWatching,
                 ) { _, item ->
-                    CwCard(
-                        item = item,
-                        onFocused = {},
-                        onClick = {
-                            onNavigate?.openPlayer(
-                                com.strata.tv.ui.nav.PlayerArgs(
-                                    streamUrl = item.streamUrl,
-                                    title = item.contentId,
-                                    isLive = item.contentType == "live",
-                                    resumePositionMs = item.resumePositionMs,
-                                    contentType = item.contentType,
-                                    artworkUrl = item.artworkUrl,
-                                ),
-                            )
+                    Box(
+                        modifier = Modifier.onPreviewKeyEvent { event ->
+                            if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
+                                event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MENU
+                            ) {
+                                contextMenuActions = listOf(
+                                    ContextMenuAction("Remove from Continue Watching") {
+                                        viewModel.removeContinueWatching(item.contentId)
+                                    },
+                                )
+                                contextMenuVisible = true
+                                true
+                            } else false
                         },
-                    )
+                    ) {
+                        CwCard(
+                            item = item,
+                            onFocused = {},
+                            onClick = {
+                                onNavigate?.openPlayer(
+                                    com.strata.tv.ui.nav.PlayerArgs(
+                                        streamUrl = item.streamUrl,
+                                        title = item.contentId,
+                                        isLive = item.contentType == "live",
+                                        resumePositionMs = item.resumePositionMs,
+                                        contentType = item.contentType,
+                                        artworkUrl = item.artworkUrl,
+                                    ),
+                                )
+                            },
+                        )
+                    }
                 }
             }
 
@@ -160,14 +183,30 @@ fun HomeScreen(
                     accentColor = StrataColors.AccentPrimary,
                     items = watchlist,
                 ) { _, item ->
-                    PosterCard(
-                        title = item.title,
-                        subtitle = null,
-                        posterUrl = item.artworkUrl.takeIf { it.isNotBlank() },
-                        onClick = {
-                            onNavigate?.openMovieDetail(item.contentId)
+                    Box(
+                        modifier = Modifier.onPreviewKeyEvent { event ->
+                            if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
+                                event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MENU
+                            ) {
+                                contextMenuActions = listOf(
+                                    ContextMenuAction("Remove from Watchlist") {
+                                        viewModel.removeFromWatchlist(item.contentId)
+                                    },
+                                )
+                                contextMenuVisible = true
+                                true
+                            } else false
                         },
-                    )
+                    ) {
+                        PosterCard(
+                            title = item.title,
+                            subtitle = null,
+                            posterUrl = item.artworkUrl.takeIf { it.isNotBlank() },
+                            onClick = {
+                                onNavigate?.openMovieDetail(item.contentId)
+                            },
+                        )
+                    }
                 }
             }
 
@@ -177,12 +216,15 @@ fun HomeScreen(
                     accentColor = StrataColors.AccentPrimary,
                     items = state.recentMovies,
                 ) { _, item ->
-                    MovieCard(
+                    MovieCardWithContextMenu(
                         movie = item,
-                        onFocused = {},
-                        onClick = {
-                            onNavigate?.openMovieDetail(item.contentId)
+                        watchlistIds = watchlist.map { it.contentId }.toSet(),
+                        onMenuShow = { actions ->
+                            contextMenuActions = actions
+                            contextMenuVisible = true
                         },
+                        viewModel = viewModel,
+                        onClick = { onNavigate?.openMovieDetail(item.contentId) },
                     )
                 }
             } else if (isLoading) {
@@ -197,12 +239,15 @@ fun HomeScreen(
                     accentColor = StrataColors.AccentPrimary,
                     items = rail.movies,
                 ) { _, movie ->
-                    MovieCard(
+                    MovieCardWithContextMenu(
                         movie = movie,
-                        onFocused = {},
-                        onClick = {
-                            onNavigate?.openMovieDetail(movie.contentId)
+                        watchlistIds = watchlist.map { it.contentId }.toSet(),
+                        onMenuShow = { actions ->
+                            contextMenuActions = actions
+                            contextMenuVisible = true
                         },
+                        viewModel = viewModel,
+                        onClick = { onNavigate?.openMovieDetail(movie.contentId) },
                     )
                 }
             }
@@ -220,18 +265,28 @@ fun HomeScreen(
                     accentColor = accentColors[index % accentColors.size],
                     items = rail.movies,
                 ) { _, movie ->
-                    MovieCard(
+                    MovieCardWithContextMenu(
                         movie = movie,
-                        onFocused = {},
-                        onClick = {
-                            onNavigate?.openMovieDetail(movie.contentId)
+                        watchlistIds = watchlist.map { it.contentId }.toSet(),
+                        onMenuShow = { actions ->
+                            contextMenuActions = actions
+                            contextMenuVisible = true
                         },
+                        viewModel = viewModel,
+                        onClick = { onNavigate?.openMovieDetail(movie.contentId) },
                     )
                 }
             }
 
         Spacer(Modifier.height(48.dp))
     }
+
+    // -- Context menu overlay (rendered outside the scroll column) ----
+    CardContextMenu(
+        visible = contextMenuVisible,
+        actions = contextMenuActions,
+        onDismiss = { contextMenuVisible = false },
+    )
 }
 
 // =====================================================================
@@ -542,6 +597,55 @@ private fun SyncBanner(progress: SyncService.Progress) {
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
         Text(msg, color = StrataColors.TextSecondary, fontSize = 12.sp)
+    }
+}
+
+/**
+ * A MovieCard wrapped in a Box that intercepts KEYCODE_MENU to show a
+ * context menu with "Add to Watchlist" / "Remove from Watchlist".
+ */
+@Composable
+private fun MovieCardWithContextMenu(
+    movie: MovieListItem,
+    watchlistIds: Set<String>,
+    onMenuShow: (List<ContextMenuAction>) -> Unit,
+    viewModel: HomeViewModel,
+    onClick: () -> Unit,
+) {
+    val inWatchlist = movie.contentId in watchlistIds
+
+    Box(
+        modifier = Modifier.onPreviewKeyEvent { event ->
+            if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
+                event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MENU
+            ) {
+                val actions = if (inWatchlist) {
+                    listOf(
+                        ContextMenuAction("Remove from Watchlist") {
+                            viewModel.removeFromWatchlist(movie.contentId)
+                        },
+                    )
+                } else {
+                    listOf(
+                        ContextMenuAction("Add to Watchlist") {
+                            viewModel.addToWatchlist(
+                                contentId = movie.contentId,
+                                title = movie.movieTitle,
+                                artworkUrl = movie.posterUrl,
+                            )
+                        },
+                    )
+                }
+                onMenuShow(actions)
+                true
+            } else false
+        },
+    ) {
+        MovieCard(
+            movie = movie,
+            onFocused = {},
+            onClick = onClick,
+        )
     }
 }
 

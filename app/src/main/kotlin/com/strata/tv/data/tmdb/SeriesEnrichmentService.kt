@@ -41,7 +41,6 @@ class SeriesEnrichmentService @Inject constructor(
         while (true) {
             val pending = seriesDao.needingEnrichment(limit = 50)
             if (pending.isEmpty()) break
-            tracker.addWork(pending.size)
             searchBatch(pending)
         }
     }
@@ -89,7 +88,6 @@ class SeriesEnrichmentService @Inject constructor(
         while (true) {
             val pending = seriesDao.needingDetailEnrichment(limit = 50)
             if (pending.isEmpty()) break
-            tracker.addWork(pending.size)
             detailBatch(pending)
         }
     }

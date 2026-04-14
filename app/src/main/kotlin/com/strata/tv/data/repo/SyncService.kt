@@ -287,7 +287,7 @@ class SyncService @Inject constructor(
 
             seriesRows.add(
                 SeriesEntity(
-                    seriesTitle = normalisedTitle,
+                    seriesTitle = titleForSeries,
                     totalSeasons = episodesForSeries
                         .mapNotNull { it.seasonNumber }
                         .maxOrNull() ?: 0,

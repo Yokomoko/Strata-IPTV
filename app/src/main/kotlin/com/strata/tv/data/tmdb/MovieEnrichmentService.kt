@@ -34,6 +34,9 @@ class MovieEnrichmentService @Inject constructor(
 
     /** Run all enrichment passes, looping until all items are done. */
     suspend fun enrichBatch() {
+        // Set total up-front so the progress ring doesn't oscillate.
+        val totalNeeding = movieDao.countNeedingEnrichment()
+        tracker.addWork(totalNeeding)
         searchPassAll()
         detailPassAll()
         providerPassAll()
@@ -47,7 +50,6 @@ class MovieEnrichmentService @Inject constructor(
         while (true) {
             val pending = movieDao.needingEnrichment(limit = 50)
             if (pending.isEmpty()) break
-            tracker.addWork(pending.size)
             searchBatch(pending)
         }
     }
@@ -90,7 +92,6 @@ class MovieEnrichmentService @Inject constructor(
         while (true) {
             val pending = movieDao.needingDetailEnrichment(limit = 50)
             if (pending.isEmpty()) break
-            tracker.addWork(pending.size)
             detailBatch(pending)
         }
     }

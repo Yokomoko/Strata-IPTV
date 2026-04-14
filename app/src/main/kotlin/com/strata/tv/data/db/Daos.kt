@@ -260,6 +260,9 @@ interface MovieDao {
     )
     fun watchByProvider(provider: String, limit: Int = 40): Flow<List<MovieEntity>>
 
+    @Query("SELECT COUNT(*) FROM movies WHERE hidden = 0 AND (poster_url = '' OR genre = '' OR rating = 0.0)")
+    suspend fun countNeedingEnrichment(): Int
+
     /** Movies eligible for TMDB enrichment (no poster yet). */
     @Query(
         """

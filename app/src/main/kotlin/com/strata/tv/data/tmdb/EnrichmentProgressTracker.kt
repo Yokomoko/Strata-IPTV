@@ -52,9 +52,11 @@ class EnrichmentProgressTracker @Inject constructor() {
         }
     }
 
-    /** Lock in the final sync total (from ParseResult.Complete). */
+    /** Lock in the final sync total (from ParseResult.Complete).
+     *  Don't set processed = total yet — persistence still needs to run.
+     *  Cap at 90% so the ring doesn't flash 100% prematurely. */
     fun syncComplete(totalParsed: Int) {
-        _progress.update { it.copy(processed = totalParsed, total = totalParsed) }
+        _progress.update { it.copy(total = totalParsed, label = "Processing") }
     }
 
     /** Switch to enrichment phase — resets counters. */

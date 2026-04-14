@@ -80,10 +80,13 @@ class HomeViewModel @Inject constructor(
         initialValue = HomeUiState.Empty,
     )
 
-    // -- Genre rails (built in background) -----------------------------
+    // -- Genre + provider rails (built in background) ------------------
 
     private val _genreRails = MutableStateFlow<List<HomeGenreRail>>(emptyList())
     val genreRails: StateFlow<List<HomeGenreRail>> = _genreRails.asStateFlow()
+
+    private val _providerRails = MutableStateFlow<List<HomeProviderRail>>(emptyList())
+    val providerRails: StateFlow<List<HomeProviderRail>> = _providerRails.asStateFlow()
 
     /** Sync progress, surfaced separately so the UI can show a banner. */
     val syncProgress: StateFlow<SyncService.Progress> = syncService.progress
@@ -107,15 +110,19 @@ class HomeViewModel @Inject constructor(
             }
         }
 
-        // Build genre rails once enrichment starts populating genres.
-        // Re-runs periodically while enrichment is active.
+        // Build genre + provider rails once enrichment starts populating data.
         viewModelScope.launch(Dispatchers.IO) {
-            // Wait a bit for initial sync + early enrichment to populate some genres.
             kotlinx.coroutines.delay(5_000)
             buildGenreRails()
-            // Rebuild once more after enrichment has had time to work.
+            buildProviderRails()
+            // Rebuild after enrichment has had more time.
             kotlinx.coroutines.delay(30_000)
             buildGenreRails()
+            buildProviderRails()
+            // One more pass at 2 min for fuller coverage.
+            kotlinx.coroutines.delay(90_000)
+            buildGenreRails()
+            buildProviderRails()
         }
     }
 
@@ -145,7 +152,64 @@ class HomeViewModel @Inject constructor(
             Log.w("HomeViewModel", "Genre rail build failed", e)
         }
     }
+
+    private suspend fun buildProviderRails() {
+        try {
+            val groupTitles = movieDao.distinctMovieGroupTitles()
+            // Extract a clean provider name from group_title.
+            // Common patterns: "UK | Netflix Movies", "VOD | US | Disney+", etc.
+            val providerMap = mutableMapOf<String, String>() // cleanName → rawGroupTitle
+            for (raw in groupTitles) {
+                val clean = extractProviderName(raw)
+                if (clean.isNotBlank() && clean !in providerMap) {
+                    providerMap[clean] = raw
+                }
+            }
+            // Deduplicate: prefer UK variants over US.
+            val seen = mutableSetOf<String>()
+            val ukFirst = providerMap.entries.sortedBy { entry ->
+                // UK entries sort first (lower = higher priority).
+                if (entry.value.contains("UK", ignoreCase = true)) 0 else 1
+            }
+            val rails = mutableListOf<HomeProviderRail>()
+            for ((cleanName, rawGroupTitle) in ukFirst) {
+                val key = cleanName.lowercase()
+                if (!seen.add(key)) continue
+                val movies = movieDao.byGroupTitle(rawGroupTitle, limit = 20)
+                if (movies.size >= 3) {
+                    rails.add(HomeProviderRail("New on $cleanName", movies))
+                }
+                if (rails.size >= 6) break
+            }
+            _providerRails.value = rails
+        } catch (e: Throwable) {
+            Log.w("HomeViewModel", "Provider rail build failed", e)
+        }
+    }
+
+    /** Extract a human-friendly provider name from an M3U group_title. */
+    private fun extractProviderName(groupTitle: String): String {
+        // Split by | and take the last meaningful segment.
+        val parts = groupTitle.split("|").map { it.trim() }
+        // Filter out country codes and generic words.
+        val skip = setOf("UK", "US", "VOD", "MOVIES", "SHOWS", "TV", "4K", "HD", "FHD")
+        val candidate = parts.lastOrNull { part ->
+            val upper = part.uppercase()
+            upper !in skip && upper.length > 2
+        } ?: parts.lastOrNull() ?: groupTitle
+
+        // Strip trailing "Movies" / "Shows" from the provider name.
+        return candidate
+            .replace(Regex("\\s*(Movies|Shows|Series|Films)\\s*$", RegexOption.IGNORE_CASE), "")
+            .trim()
+    }
 }
+
+/** A provider-grouped rail for the Home screen. */
+data class HomeProviderRail(
+    val title: String,
+    val movies: List<MovieListItem>,
+)
 
 /** A genre-grouped rail for the Home screen. */
 data class HomeGenreRail(

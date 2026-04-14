@@ -75,6 +75,7 @@ fun HomeScreen(
     val state by viewModel.state.collectAsState()
     val sync by viewModel.syncProgress.collectAsState()
     val genreRails by viewModel.genreRails.collectAsState()
+    val providerRails by viewModel.providerRails.collectAsState()
 
     // The hero carousel renders its own backdrop + gradients, so we
     // don't layer an ImmersiveBackdrop behind the whole screen — that
@@ -145,6 +146,23 @@ fun HomeScreen(
             } else if (isLoading) {
                 ShimmerRail()
                 ShimmerRail()
+            }
+
+            // -- Provider rails ("New on Netflix", etc.) ------------------
+            providerRails.forEach { rail ->
+                Rail(
+                    title = rail.title,
+                    accentColor = StrataColors.AccentPrimary,
+                    items = rail.movies,
+                ) { _, movie ->
+                    MovieCard(
+                        movie = movie,
+                        onFocused = {},
+                        onClick = {
+                            onNavigate?.openMovieDetail(movie.contentId)
+                        },
+                    )
+                }
             }
 
             // -- Genre rails (populated as enrichment runs) --------------

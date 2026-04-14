@@ -166,6 +166,34 @@ interface MovieDao {
     )
     suspend fun distinctGenres(): List<String>
 
+    /** Distinct group_titles for movies — used to build provider rails on Home. */
+    @Query(
+        """
+        SELECT DISTINCT c.group_title
+        FROM content_items c
+        INNER JOIN movies m ON m.content_id = c.content_id
+        WHERE m.hidden = 0 AND m.poster_url != '' AND c.group_title != ''
+          AND (m.year IS NULL OR m.year BETWEEN 1900 AND 2030)
+        """,
+    )
+    suspend fun distinctMovieGroupTitles(): List<String>
+
+    /** Movies by group_title (provider) — joined with content_items. */
+    @Query(
+        """
+        SELECT m.id, m.content_id, m.movie_title, m.year, m.runtime, m.genre,
+               m.poster_url, m.resume_position_ms, m.watched, m.is_favourite,
+               m.language, m.rating, m.provider, m.tmdb_id, m.hidden
+        FROM movies m
+        INNER JOIN content_items c ON c.content_id = m.content_id
+        WHERE m.hidden = 0 AND m.poster_url != '' AND c.group_title = :groupTitle
+          AND (m.year IS NULL OR m.year BETWEEN 1900 AND 2030)
+        ORDER BY m.rating DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun byGroupTitle(groupTitle: String, limit: Int = 20): List<MovieListItem>
+
     @Query(
         """
         SELECT * FROM movies

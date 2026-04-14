@@ -77,7 +77,11 @@ interface ContentDao {
             val args = mutableListOf<String>()
 
             for (word in terms) {
-                val pattern = "%$word%"
+                // Use a prefix (first 4 chars) for the LIKE so typos at
+                // the end of words still match — "bennett" → "%benn%"
+                // matches "bennet". The fuzzy scorer handles full ranking.
+                val prefix = if (word.length > 4) word.take(4) else word
+                val pattern = "%$prefix%"
                 clauses.add(
                     "(LOWER(display_name) LIKE ? OR LOWER(title) LIKE ? OR LOWER(tvg_name) LIKE ?)",
                 )

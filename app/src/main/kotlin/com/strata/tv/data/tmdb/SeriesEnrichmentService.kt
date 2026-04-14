@@ -142,7 +142,7 @@ class SeriesEnrichmentService @Inject constructor(
 
     companion object {
         private const val TAG = "SeriesEnrichment"
-        private const val PACE_MS = 200L
+        private const val PACE_MS = 50L
 
         /**
          * Extracts the US content rating from TMDB's `content_ratings`

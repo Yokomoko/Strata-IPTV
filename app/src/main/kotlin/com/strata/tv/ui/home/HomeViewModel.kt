@@ -19,6 +19,7 @@ import com.strata.tv.data.repo.SyncService
 import com.strata.tv.data.tmdb.EnrichmentProgressTracker
 import com.strata.tv.data.tmdb.MovieEnrichmentService
 import com.strata.tv.data.tmdb.SeriesEnrichmentService
+import com.strata.tv.domain.MovieDeduplicator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,6 +44,7 @@ import javax.inject.Inject
 class HomeViewModel @Inject constructor(
     private val bootstrap: BootstrapRepository,
     private val syncService: SyncService,
+    private val movieDeduplicator: MovieDeduplicator,
     private val movieEnrichment: MovieEnrichmentService,
     private val seriesEnrichment: SeriesEnrichmentService,
     private val enrichmentTracker: EnrichmentProgressTracker,
@@ -147,6 +149,13 @@ class HomeViewModel @Inject constructor(
                 val seriesCount = seriesDao.watchCount().first()
                 android.util.Log.w("HomeVM", "[DB] movies=${allContent.size} shows=${showContent.size} live=${liveContent.size} series=$seriesCount")
             }
+
+            // Deduplicate quality variants *before* enrichment so we
+            // don't waste TMDB calls on hidden duplicates.
+            launch(Dispatchers.IO) {
+                runCatching { movieDeduplicator.dedup() }
+                    .onFailure { Log.w("HomeVM", "Movie dedup failed", it) }
+            }.join()
 
             // Switch tracker to enrichment phase.
             enrichmentTracker.startEnrichment(total = 0)

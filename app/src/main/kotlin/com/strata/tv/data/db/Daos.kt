@@ -347,6 +347,14 @@ interface MovieDao {
 
     @Query("SELECT COUNT(*) FROM movies WHERE hidden = 0")
     fun watchVisibleCount(): Flow<Int>
+
+    /** All movies including hidden variants — used by [MovieDeduplicator]. */
+    @Query("SELECT * FROM movies")
+    suspend fun allIncludingHidden(): List<MovieEntity>
+
+    /** Set the hidden flag on a single movie by row ID. */
+    @Query("UPDATE movies SET hidden = :hidden WHERE id = :id")
+    suspend fun setHidden(id: Int, hidden: Boolean)
 }
 
 // ---------------------------------------------------------------------------

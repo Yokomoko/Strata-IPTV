@@ -157,13 +157,13 @@ interface MovieDao {
     )
     fun watchAllForList(): Flow<List<MovieListItem>>
 
-    /** Recent movies with posters for the Home screen rails. */
+    /** Recent movies for the Home screen rails (shows initials fallback when no poster). */
     @Query(
         """
         SELECT id, content_id, movie_title, year, runtime, genre,
                poster_url, resume_position_ms, watched, is_favourite,
                language, rating, provider, tmdb_id, hidden
-        FROM movies WHERE hidden = 0 AND poster_url != ''
+        FROM movies WHERE hidden = 0
           AND (year IS NULL OR year BETWEEN 1900 AND 2030)
         ORDER BY year DESC
         LIMIT :limit

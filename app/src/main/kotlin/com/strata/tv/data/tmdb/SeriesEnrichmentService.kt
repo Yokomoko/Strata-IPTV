@@ -3,6 +3,7 @@ package com.strata.tv.data.tmdb
 import android.util.Log
 import com.strata.tv.AppConfig
 import com.strata.tv.data.db.SeriesDao
+import com.strata.tv.data.db.SeriesEntity
 import kotlinx.coroutines.delay
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -26,19 +27,26 @@ class SeriesEnrichmentService @Inject constructor(
     private val tracker: EnrichmentProgressTracker,
 ) {
 
-    /** Run both enrichment passes back-to-back. */
+    /** Run both enrichment passes, looping until all items are done. */
     suspend fun enrichBatch() {
-        searchPass()
-        detailPass()
+        searchPassAll()
+        detailPassAll()
     }
 
     // -----------------------------------------------------------------
     // Pass 1 — search: poster, genre IDs, language, tmdbId
     // -----------------------------------------------------------------
 
-    private suspend fun searchPass() {
-        val pending = seriesDao.needingEnrichment(limit = 100)
-        tracker.addWork(pending.size)
+    private suspend fun searchPassAll() {
+        while (true) {
+            val pending = seriesDao.needingEnrichment(limit = 50)
+            if (pending.isEmpty()) break
+            tracker.addWork(pending.size)
+            searchBatch(pending)
+        }
+    }
+
+    private suspend fun searchBatch(pending: List<SeriesEntity>) {
         for (series in pending) {
             runCatching {
                 val response = tmdb.searchTv(
@@ -77,9 +85,16 @@ class SeriesEnrichmentService @Inject constructor(
     // Pass 2 — detail: plot, backdrop, cast, certification, etc.
     // -----------------------------------------------------------------
 
-    private suspend fun detailPass() {
-        val pending = seriesDao.needingDetailEnrichment(limit = 100)
-        tracker.addWork(pending.size)
+    private suspend fun detailPassAll() {
+        while (true) {
+            val pending = seriesDao.needingDetailEnrichment(limit = 50)
+            if (pending.isEmpty()) break
+            tracker.addWork(pending.size)
+            detailBatch(pending)
+        }
+    }
+
+    private suspend fun detailBatch(pending: List<SeriesEntity>) {
         for (series in pending) {
             runCatching {
                 val detail = tmdb.tvDetail(

@@ -82,8 +82,14 @@ class HomeViewModel @Inject constructor(
             // are rows to enrich.  Fire-and-forget: failures are logged
             // inside each service and never propagate to the UI.
             enrichmentTracker.reset()
-            launch(Dispatchers.IO) { runCatching { movieEnrichment.enrichBatch() } }
-            launch(Dispatchers.IO) { runCatching { seriesEnrichment.enrichBatch() } }
+            val movieJob = launch(Dispatchers.IO) { runCatching { movieEnrichment.enrichBatch() } }
+            val seriesJob = launch(Dispatchers.IO) { runCatching { seriesEnrichment.enrichBatch() } }
+            // Mark enrichment done once both finish.
+            launch {
+                movieJob.join()
+                seriesJob.join()
+                enrichmentTracker.finish()
+            }
         }
     }
 }

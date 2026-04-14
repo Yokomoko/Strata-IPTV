@@ -221,9 +221,9 @@ private fun EnrichmentRing(progress: Float) {
         }
 
         Text(
-            text = "$percent",
+            text = "$percent%",
             color = StrataColors.TextSecondary,
-            fontSize = 9.sp,
+            fontSize = 8.sp,
             fontWeight = FontWeight.Bold,
         )
     }

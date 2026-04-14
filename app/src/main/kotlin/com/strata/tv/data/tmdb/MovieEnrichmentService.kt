@@ -3,6 +3,7 @@ package com.strata.tv.data.tmdb
 import android.util.Log
 import com.strata.tv.AppConfig
 import com.strata.tv.data.db.MovieDao
+import com.strata.tv.data.db.MovieEntity
 import kotlinx.coroutines.delay
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -31,19 +32,26 @@ class MovieEnrichmentService @Inject constructor(
     private val tracker: EnrichmentProgressTracker,
 ) {
 
-    /** Run both enrichment passes back-to-back. */
+    /** Run both enrichment passes, looping until all items are done. */
     suspend fun enrichBatch() {
-        searchPass()
-        detailPass()
+        searchPassAll()
+        detailPassAll()
     }
 
     // -----------------------------------------------------------------
     // Pass 1 — search: poster, genre IDs, rating, language, tmdbId
     // -----------------------------------------------------------------
 
-    private suspend fun searchPass() {
-        val pending = movieDao.needingEnrichment(limit = 100)
-        tracker.addWork(pending.size)
+    private suspend fun searchPassAll() {
+        while (true) {
+            val pending = movieDao.needingEnrichment(limit = 50)
+            if (pending.isEmpty()) break
+            tracker.addWork(pending.size)
+            searchBatch(pending)
+        }
+    }
+
+    private suspend fun searchBatch(pending: List<MovieEntity>) {
         for (movie in pending) {
             runCatching {
                 val response = tmdb.searchMovie(
@@ -77,9 +85,16 @@ class MovieEnrichmentService @Inject constructor(
     // Pass 2 — detail: overview, backdrop, cast, certification, etc.
     // -----------------------------------------------------------------
 
-    private suspend fun detailPass() {
-        val pending = movieDao.needingDetailEnrichment(limit = 100)
-        tracker.addWork(pending.size)
+    private suspend fun detailPassAll() {
+        while (true) {
+            val pending = movieDao.needingDetailEnrichment(limit = 50)
+            if (pending.isEmpty()) break
+            tracker.addWork(pending.size)
+            detailBatch(pending)
+        }
+    }
+
+    private suspend fun detailBatch(pending: List<MovieEntity>) {
         for (movie in pending) {
             runCatching {
                 val detail = tmdb.movieDetail(

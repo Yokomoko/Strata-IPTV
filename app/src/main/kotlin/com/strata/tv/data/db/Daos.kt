@@ -95,12 +95,20 @@ interface MovieDao {
      * columns (overview, cast) that cause CursorWindow overflow when the
      * library has 2000+ movies.
      */
+    /**
+     * Lightweight projection for grid/rail list views.  Omits heavy text
+     * columns (overview, cast) that cause CursorWindow overflow.
+     * Capped at 500 rows — more than enough for genre rails + hero;
+     * even 15-column rows overflow the 2 MB CursorWindow at ~3000 rows
+     * due to long poster URLs and titles.
+     */
     @Query(
         """
         SELECT id, content_id, movie_title, year, runtime, genre,
                poster_url, resume_position_ms, watched, is_favourite,
                language, rating, provider, tmdb_id, hidden
         FROM movies WHERE hidden = 0 ORDER BY year DESC
+        LIMIT 500
         """,
     )
     fun watchAllForList(): Flow<List<MovieListItem>>

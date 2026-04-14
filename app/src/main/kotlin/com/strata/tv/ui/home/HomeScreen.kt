@@ -487,9 +487,18 @@ private fun MovieCard(
     onFocused: () -> Unit = {},
     onClick: () -> Unit = {},
 ) {
+    val subtitle = buildString {
+        movie.year?.let { append(it) }
+        if (movie.rating > 0.0) {
+            if (isNotEmpty()) append("  \u00B7  ")
+            append("\u2605 ")
+            append(String.format("%.1f", movie.rating))
+        }
+    }.ifEmpty { null }
+
     PosterCard(
         title = movie.movieTitle,
-        subtitle = movie.year?.toString(),
+        subtitle = subtitle,
         posterUrl = movie.posterUrl.takeIf { it.isNotBlank() },
         onClick = onClick,
         onFocused = onFocused,

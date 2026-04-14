@@ -114,17 +114,21 @@ fun PosterCard(
                 Initials(title)
             }
 
-            // Bottom gradient + text overlay
+            // Bottom gradient + text overlay — tall + dark to beat poster text
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .fillMaxWidth()
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)),
+                            colorStops = arrayOf(
+                                0.0f to Color.Transparent,
+                                0.3f to Color.Black.copy(alpha = 0.5f),
+                                1.0f to Color.Black.copy(alpha = 0.95f),
+                            ),
                         ),
                     )
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                    .padding(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 8.dp),
             ) {
                 Text(
                     text = title,

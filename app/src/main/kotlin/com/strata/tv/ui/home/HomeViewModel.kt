@@ -1,8 +1,14 @@
 package com.strata.tv.ui.home
 
+import android.app.Application
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.strata.tv.AppConfig
 import com.strata.tv.data.db.ChannelDao
 import com.strata.tv.data.db.ContentDao
@@ -12,10 +18,12 @@ import com.strata.tv.data.db.MovieDao
 import com.strata.tv.data.db.MovieEntity
 import com.strata.tv.data.db.MovieListItem
 import com.strata.tv.data.db.SeriesDao
+import com.strata.tv.data.db.SourceDao
 import com.strata.tv.data.db.WatchlistDao
 import com.strata.tv.data.db.WatchlistEntity
 import com.strata.tv.data.repo.BootstrapRepository
 import com.strata.tv.data.repo.SyncService
+import com.strata.tv.data.repo.SyncWorker
 import com.strata.tv.data.tmdb.EnrichmentProgressTracker
 import com.strata.tv.data.tmdb.MovieEnrichmentService
 import com.strata.tv.data.tmdb.SeriesEnrichmentService
@@ -30,6 +38,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Duration
+import java.time.Instant
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /**
@@ -42,6 +53,7 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class HomeViewModel @Inject constructor(
+    private val application: Application,
     private val bootstrap: BootstrapRepository,
     private val syncService: SyncService,
     private val movieDeduplicator: MovieDeduplicator,
@@ -54,6 +66,7 @@ class HomeViewModel @Inject constructor(
     private val channelDao: ChannelDao,
     private val cwDao: ContinueWatchingDao,
     private val watchlistDao: WatchlistDao,
+    private val sourceDao: SourceDao,
 ) : ViewModel() {
 
     // -- Core state (lightweight flows) --------------------------------
@@ -133,13 +146,24 @@ class HomeViewModel @Inject constructor(
         watchlistDao.watchIsInWatchlist(contentId).first()
 
     init {
+        // Schedule periodic background sync via WorkManager (every 12h,
+        // network-required).  This replaces the old forced-every-launch
+        // sync and keeps the library fresh without blocking app start.
+        schedulePeriodicSync()
+
         viewModelScope.launch {
             val sourceId = bootstrap.ensureSource()
             enrichmentTracker.startSync()
-            // Force a re-sync to pick up the episode-pattern classifier
-            // fix and new channel categories.
-            // TODO: remove forced sync once the DB has correct data.
-            runCatching { syncService.syncFromUrl(AppConfig.PLAYLIST_URL, sourceId) }
+
+            // Only do an immediate sync if the DB is empty (first run)
+            // — periodic WorkManager handles the rest.
+            val movieCount = movieDao.watchVisibleCount().first()
+            if (movieCount == 0) {
+                runCatching { syncService.syncFromUrl(AppConfig.PLAYLIST_URL, sourceId) }
+                    .onSuccess {
+                        runCatching { sourceDao.markSynced(sourceId, Instant.now()) }
+                    }
+            }
 
             // Diagnostic: log content counts by type
             launch(Dispatchers.IO) {
@@ -155,6 +179,8 @@ class HomeViewModel @Inject constructor(
             launch(Dispatchers.IO) {
                 runCatching { movieDeduplicator.dedup() }
                     .onFailure { Log.w("HomeVM", "Movie dedup failed", it) }
+                runCatching { movieDeduplicator.dedupSeries() }
+                    .onFailure { Log.w("HomeVM", "Series dedup failed", it) }
             }.join()
 
             // Switch tracker to enrichment phase.
@@ -234,6 +260,31 @@ class HomeViewModel @Inject constructor(
         } catch (e: Throwable) {
             Log.w("HomeViewModel", "Provider rail build failed", e)
         }
+    }
+
+    /**
+     * Enqueue a periodic WorkManager task that syncs the M3U playlist
+     * every 12 hours when a network connection is available.
+     * Uses [ExistingPeriodicWorkPolicy.KEEP] so re-entering the Home
+     * screen doesn't reset the schedule.
+     */
+    private fun schedulePeriodicSync() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        val request = PeriodicWorkRequestBuilder<SyncWorker>(
+            repeatInterval = 12,
+            repeatIntervalTimeUnit = TimeUnit.HOURS,
+        )
+            .setConstraints(constraints)
+            .build()
+
+        WorkManager.getInstance(application).enqueueUniquePeriodicWork(
+            SyncWorker.WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            request,
+        )
     }
 }
 

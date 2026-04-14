@@ -23,6 +23,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -271,6 +274,9 @@ private fun ShowDetailContent(
                                             resumePositionMs = firstEp.resumePositionMs,
                                             contentType = "show",
                                             artworkUrl = series.posterUrl,
+                                            seriesTitle = series.seriesTitle,
+                                            seasonNumber = firstEp.seasonNumber,
+                                            episodeNumber = firstEp.episodeNumber,
                                         ),
                                     )
                                 }
@@ -342,20 +348,23 @@ private fun ShowDetailContent(
                         key = { it },
                     ) { season ->
                         val isSelected = season == activeSeason
+                        var chipFocused by remember { mutableStateOf(false) }
                         Surface(
                             onClick = { onSelectSeason(season) },
                             shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
                             colors = ClickableSurfaceDefaults.colors(
                                 containerColor = if (isSelected) StrataColors.AccentPrimary else StrataColors.SurfaceRaised,
-                                focusedContainerColor = StrataColors.AccentPrimaryBright,
+                                focusedContainerColor = StrataColors.AccentPrimary,
                             ),
-                            modifier = Modifier.height(36.dp),
+                            modifier = Modifier
+                                .height(36.dp)
+                                .onFocusChanged { chipFocused = it.isFocused },
                         ) {
                             Text(
                                 text = "Season $season",
-                                color = if (isSelected) Color.White else StrataColors.TextSecondary,
+                                color = if (isSelected || chipFocused) Color.White else StrataColors.TextSecondary,
                                 fontSize = 13.sp,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                fontWeight = if (isSelected || chipFocused) FontWeight.SemiBold else FontWeight.Normal,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                             )
                         }
@@ -420,6 +429,9 @@ private fun EpisodeRow(
                             resumePositionMs = episode.resumePositionMs,
                             contentType = "show",
                             artworkUrl = posterUrl,
+                            seriesTitle = seriesTitle,
+                            seasonNumber = episode.seasonNumber,
+                            episodeNumber = episode.episodeNumber,
                         ),
                     )
                 }

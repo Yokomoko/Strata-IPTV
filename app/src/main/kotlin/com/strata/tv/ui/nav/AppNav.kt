@@ -77,6 +77,20 @@ sealed interface DetailRoute {
     data class Show(val seriesTitle: String) : DetailRoute
 }
 
+/**
+ * Lightweight info for a single channel in a live channel list.
+ * Passed via [PlayerArgs] so the player can switch channels
+ * without returning to the guide.
+ */
+data class ChannelPlayInfo(
+    val contentId: String,
+    val streamUrl: String,
+    val displayName: String,
+    val logoUrl: String,
+    val nowTitle: String?,
+    val nextTitle: String? = null,
+)
+
 /** Arguments for launching the player. */
 data class PlayerArgs(
     val streamUrl: String,
@@ -85,6 +99,14 @@ data class PlayerArgs(
     val resumePositionMs: Long = 0L,
     val contentType: String = "movie",
     val artworkUrl: String = "",
+    /** For live playback: the full filtered channel list for D-pad switching. */
+    val channelList: List<ChannelPlayInfo> = emptyList(),
+    /** Index of the currently-playing channel within [channelList]. */
+    val currentIndex: Int = 0,
+    /** Series context for next-episode autoplay (shows only). */
+    val seriesTitle: String? = null,
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null,
 )
 
 /** Composable factory. */

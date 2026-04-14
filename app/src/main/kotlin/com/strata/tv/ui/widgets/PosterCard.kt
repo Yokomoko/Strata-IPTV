@@ -54,6 +54,7 @@ fun PosterCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     cardSize: DpSize = DpSize(width = 140.dp, height = 210.dp),
+    imageScale: ContentScale = ContentScale.Crop,
     onFocused: (() -> Unit)? = null,
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -96,7 +97,7 @@ fun PosterCard(
                 AsyncImage(
                     model = posterUrl,
                     contentDescription = title,
-                    contentScale = ContentScale.Crop,
+                    contentScale = imageScale,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {

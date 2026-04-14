@@ -36,6 +36,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -411,11 +412,14 @@ private fun CwCard(
     val pct = if (item.totalDurationMs > 0) {
         (item.resumePositionMs.toFloat() / item.totalDurationMs * 100).toInt()
     } else 0
+    val isLive = item.contentType == "live"
     PosterCard(
         title = item.contentId,
-        subtitle = "Resume \u00B7 $pct%",
+        subtitle = if (isLive) "Resume" else "Resume \u00B7 $pct%",
         posterUrl = item.artworkUrl.takeIf { it.isNotBlank() },
         onClick = onClick,
         onFocused = onFocused,
+        imageScale = if (isLive) ContentScale.Fit else ContentScale.Crop,
+        cardSize = if (isLive) DpSize(160.dp, 120.dp) else DpSize(140.dp, 210.dp),
     )
 }

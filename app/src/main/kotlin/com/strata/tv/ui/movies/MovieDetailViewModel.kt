@@ -83,17 +83,8 @@ class MovieDetailViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Find the movie -- try by contentId first, then scan all movies.
-     * This handles cases where the contentId might be the movie title
-     * or the actual content_id field.
-     */
     private suspend fun findMovie(contentId: String): MovieEntity? {
-        // Direct lookup via the all-movies flow snapshot
-        val allMovies = movieDao.watchAllByYear()
-            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-            .value
-        return allMovies.firstOrNull { it.contentId == contentId }
+        return movieDao.byContentId(contentId)
     }
 }
 

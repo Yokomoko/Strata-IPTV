@@ -86,6 +86,10 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE hidden = 0 ORDER BY year DESC")
     fun watchAllByYear(): Flow<List<MovieEntity>>
 
+    /** Single movie by content_id — for detail screens. */
+    @Query("SELECT * FROM movies WHERE content_id = :contentId LIMIT 1")
+    suspend fun byContentId(contentId: String): MovieEntity?
+
     /**
      * Lightweight projection for grid/rail list views.  Omits heavy text
      * columns (overview, cast) that cause CursorWindow overflow when the

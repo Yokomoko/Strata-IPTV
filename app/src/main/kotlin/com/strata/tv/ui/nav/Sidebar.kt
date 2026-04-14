@@ -41,6 +41,8 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.LiveTv
 import com.strata.tv.ui.theme.StrataColors
 
 /**
@@ -84,12 +86,12 @@ fun Sidebar(
             )
             .padding(vertical = 12.dp),
     ) {
-        // Brand dot
-        Box(
-            modifier = Modifier
-                .size(6.dp)
-                .clip(CircleShape)
-                .background(StrataColors.AccentPrimary),
+        // Brand icon
+        Icon(
+            imageVector = Icons.Outlined.LiveTv,
+            contentDescription = "Strata",
+            tint = StrataColors.AccentPrimary,
+            modifier = Modifier.size(18.dp),
         )
         Spacer(Modifier.height(16.dp))
 

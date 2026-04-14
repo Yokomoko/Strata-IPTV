@@ -115,21 +115,6 @@ fun HomeScreen(
 
             Spacer(Modifier.height(24.dp))
 
-            // Invisible focusable anchor: when D-pad Up lands here from
-            // the first rail, scroll the column back to reveal the hero.
-            Spacer(
-                Modifier
-                    .height(1.dp)
-                    .onFocusChanged { focusState ->
-                        if (focusState.isFocused) {
-                            coroutineScope.launch {
-                                scrollState.animateScrollTo(0)
-                            }
-                        }
-                    }
-                    .focusable()
-            )
-
             // -- Rails ---------------------------------------------------
             val isLoading = state.recentMovies.isEmpty() &&
                 sync != SyncService.Progress.Idle &&
@@ -203,7 +188,11 @@ fun HomeScreen(
                             subtitle = null,
                             posterUrl = item.artworkUrl.takeIf { it.isNotBlank() },
                             onClick = {
-                                onNavigate?.openMovieDetail(item.contentId)
+                                if (item.contentType == "show") {
+                                    onNavigate?.openShowDetail(item.contentId)
+                                } else {
+                                    onNavigate?.openMovieDetail(item.contentId)
+                                }
                             },
                         )
                     }
@@ -352,6 +341,10 @@ private fun HeroCarousel(
     }
 
     Box(
+        // Align TopStart so the hero's focus bounds start at the left edge.
+        // This causes Compose's focus search on D-pad Down to pick the
+        // leftmost card in the first rail below, not the middle one.
+        contentAlignment = Alignment.TopStart,
         modifier = Modifier
             .fillMaxWidth()
             .height(340.dp)

@@ -384,7 +384,11 @@ interface SeriesDao {
     @Query("SELECT * FROM series WHERE hidden = 0")
     fun watchAll(): Flow<List<SeriesEntity>>
 
+<<<<<<< HEAD
     @Query("SELECT * FROM series WHERE series_title = :title COLLATE NOCASE LIMIT 1")
+=======
+    @Query("SELECT * FROM series WHERE series_title = :title OR LOWER(series_title) = LOWER(:title) LIMIT 1")
+>>>>>>> origin/master
     suspend fun byTitle(title: String): SeriesEntity?
 
     @Query(
@@ -491,13 +495,21 @@ interface EpisodeDao {
     @Upsert
     suspend fun upsertAll(episodes: List<EpisodeEntity>)
 
+<<<<<<< HEAD
     @Query("SELECT * FROM episodes WHERE series_title = :title COLLATE NOCASE ORDER BY season_number, episode_number")
+=======
+    @Query("SELECT * FROM episodes WHERE series_title = :title OR LOWER(series_title) = LOWER(:title) ORDER BY season_number, episode_number")
+>>>>>>> origin/master
     fun watchSeries(title: String): Flow<List<EpisodeEntity>>
 
     /** First episode of a series (lowest season, then lowest episode) — for "play series" shortcuts. */
     @Query(
         """
+<<<<<<< HEAD
         SELECT * FROM episodes WHERE series_title = :title COLLATE NOCASE
+=======
+        SELECT * FROM episodes WHERE series_title = :title OR LOWER(series_title) = LOWER(:title)
+>>>>>>> origin/master
         ORDER BY season_number, episode_number LIMIT 1
         """,
     )

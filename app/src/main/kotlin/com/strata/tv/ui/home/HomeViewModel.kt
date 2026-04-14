@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -154,10 +155,15 @@ class HomeViewModel @Inject constructor(
             val sourceId = bootstrap.ensureSource()
             enrichmentTracker.startSync()
 
-            // Only do an immediate sync if the DB is empty (first run)
-            // — periodic WorkManager handles the rest.
+            // Only sync if first run (0 movies) or stale (>24h).
+            // WorkManager handles periodic background sync.
             val movieCount = movieDao.watchVisibleCount().first()
-            if (movieCount == 0) {
+            val source = sourceDao.all().firstOrNull()
+            val lastSynced = source?.lastSynced
+            val stale = lastSynced == null ||
+                Duration.between(lastSynced, Instant.now()).toHours() >= 24
+
+            if (movieCount == 0 || stale) {
                 runCatching { syncService.syncFromUrl(AppConfig.PLAYLIST_URL, sourceId) }
                     .onSuccess {
                         runCatching { sourceDao.markSynced(sourceId, Instant.now()) }

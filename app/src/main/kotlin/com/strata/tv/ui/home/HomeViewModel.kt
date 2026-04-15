@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Duration
@@ -210,20 +211,50 @@ class HomeViewModel @Inject constructor(
             }
         }
 
-        // Build genre + provider rails once enrichment starts populating data.
+        // Rebuild genre + provider rails reactively off enrichment
+        // progress instead of the old 5s/30s/90s delay schedule
+        // (architect review #7, idioms #2, quality #7 — issue #41).
+        //
+        // Strategy:
+        // - Observe `enrichmentTracker.progress`.
+        // - Run a full rebuild on first emission (so rails populate from
+        //   any already-enriched data even before enrichment starts for
+        //   this session).
+        // - Throttle further rebuilds to at most one every 8 seconds
+        //   while enrichment is running — enough responsiveness to see
+        //   rails fill in as data lands, without thrashing the DB on
+        //   every `advance()` call.
+        // - Do a final rebuild once enrichment transitions isRunning
+        //   from true → false, so the terminal state is always fresh.
         viewModelScope.launch(Dispatchers.IO) {
-            kotlinx.coroutines.delay(5_000)
+            // First render.
             buildGenreRails()
             buildProviderRails()
-            // Rebuild after enrichment has had more time.
-            kotlinx.coroutines.delay(30_000)
-            buildGenreRails()
-            buildProviderRails()
-            // One more pass at 2 min for fuller coverage.
-            kotlinx.coroutines.delay(90_000)
-            buildGenreRails()
-            buildProviderRails()
+
+            var wasRunning = false
+            enrichmentTracker.progress
+                .sample(RAIL_REBUILD_THROTTLE_MS)
+                .collect { p ->
+                    buildGenreRails()
+                    buildProviderRails()
+                    // Terminal rebuild when enrichment finishes.
+                    if (wasRunning && !p.isRunning) {
+                        buildGenreRails()
+                        buildProviderRails()
+                    }
+                    wasRunning = p.isRunning
+                }
         }
+    }
+
+    companion object {
+        /**
+         * Cap how often the reactive rail rebuild can fire.  Enrichment
+         * calls `advance()` after every TMDB match, so `progress` can
+         * emit hundreds of times per minute; without a throttle the
+         * rails would regroup on every emission.
+         */
+        private const val RAIL_REBUILD_THROTTLE_MS = 8_000L
     }
 
     private suspend fun buildGenreRails() {

@@ -10,6 +10,7 @@ import com.strata.tv.data.db.SeriesEntity
 import com.strata.tv.data.db.WatchlistDao
 import com.strata.tv.data.db.WatchlistEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,10 +41,18 @@ class ShowDetailViewModel @Inject constructor(
 
     private var _seriesTitle: String = ""
 
+    /**
+     * Current load job — cancelled and replaced on each `load()` so a
+     * previous series' episode+watchlist flow subscription doesn't leak
+     * until the whole ViewModel scope dies (idioms review #3).
+     */
+    private var loadJob: Job? = null
+
     fun load(seriesTitle: String) {
         if (_seriesTitle == seriesTitle) return
         _seriesTitle = seriesTitle
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             val series = seriesDao.byTitle(seriesTitle)
             if (series == null) {
                 _state.value = ShowDetailState.NotFound

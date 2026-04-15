@@ -37,6 +37,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -429,8 +430,20 @@ fun PlayerScreen(
                     // VOD progress bar
                     if (!isLive) {
                         val player = viewModel.player
-                        val positionMs = player.currentPosition.coerceAtLeast(0)
-                        val durationMs = player.duration.coerceAtLeast(1)
+                        // Ticker so the bar actually moves — previously read
+                        // player.currentPosition directly in composition, which
+                        // is a non-observable snapshot that only refreshed when
+                        // something else caused a recomposition (idioms #4 —
+                        // visible "frozen progress bar" bug).
+                        var positionMs by remember { mutableLongStateOf(0L) }
+                        var durationMs by remember { mutableLongStateOf(1L) }
+                        LaunchedEffect(state.isPlaying, state.controlsVisible) {
+                            while (true) {
+                                positionMs = player.currentPosition.coerceAtLeast(0)
+                                durationMs = player.duration.coerceAtLeast(1)
+                                kotlinx.coroutines.delay(500)
+                            }
+                        }
                         val progress = if (durationMs > 0) {
                             (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
                         } else 0f

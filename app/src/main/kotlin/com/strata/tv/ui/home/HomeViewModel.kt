@@ -30,6 +30,7 @@ import com.strata.tv.data.tmdb.SeriesEnrichmentService
 import com.strata.tv.domain.MovieDeduplicator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -71,28 +72,49 @@ class HomeViewModel @Inject constructor(
 
     // -- Core state (lightweight flows) --------------------------------
 
-    @Suppress("UNCHECKED_CAST")
-    val state: StateFlow<HomeUiState> = combine(
+    /**
+     * Home state assembled from six upstream flows.
+     *
+     * Uses two three-arity `combine` stages instead of the variadic
+     * array overload so every cast is compiler-checked.  The six-arity
+     * variant required `@Suppress("UNCHECKED_CAST")` + manual index
+     * casts, where any reordering silently produced a ClassCastException
+     * at runtime (idioms review #1 — crash risk).
+     *
+     * `channelDao.watchCount()` replaces `watchAll()` here so the
+     * whole channel list isn't materialised just to take `.size`
+     * (perf review #6).
+     */
+    private val counts: Flow<Triple<Int, Int, Int>> = combine(
         movieDao.watchVisibleCount(),
         seriesDao.watchCount(),
-        channelDao.watchAll(),
+        channelDao.watchCount(),
+    ) { movies, series, channels ->
+        Triple(movies, series, channels)
+    }
+
+    private data class HomeLists(
+        val continueWatching: List<ContinueWatchingEntity>,
+        val recentMovies: List<MovieListItem>,
+        val heroCandidates: List<MovieEntity>,
+    )
+
+    private val lists: Flow<HomeLists> = combine(
         cwDao.watchAll(),
         movieDao.watchRecentWithPosters(limit = 20),
         movieDao.watchHeroCandidates(limit = 5),
-    ) { values ->
-        val movies = values[0] as Int
-        val series = values[1] as Int
-        val channels = values[2] as List<*>
-        val cw = values[3] as List<ContinueWatchingEntity>
-        val recentMovies = values[4] as List<MovieListItem>
-        val heroCandidates = values[5] as List<MovieEntity>
+    ) { cw, recent, heroes ->
+        HomeLists(cw, recent, heroes)
+    }
+
+    val state: StateFlow<HomeUiState> = combine(counts, lists) { (movies, series, channels), l ->
         HomeUiState(
-            channelCount = channels.size,
+            channelCount = channels,
             movieCount = movies,
             seriesCount = series,
-            continueWatching = cw,
-            recentMovies = recentMovies,
-            heroCandidates = heroCandidates,
+            continueWatching = l.continueWatching,
+            recentMovies = l.recentMovies,
+            heroCandidates = l.heroCandidates,
         )
     }.stateIn(
         scope = viewModelScope,

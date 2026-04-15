@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -84,6 +85,15 @@ fun HomeScreen(
     val genreRails by viewModel.genreRails.collectAsState()
     val providerRails by viewModel.providerRails.collectAsState()
     val watchlist by viewModel.watchlist.collectAsState()
+
+    // Compute the watchlist content-id set once per watchlist change and
+    // reuse across all three rails.  Previously recomputed inline three
+    // times per recomposition — during enrichment churn with 8+ rails
+    // that was ~24 Set<String> allocations per frame (idioms review #5,
+    // perf review #7).
+    val watchlistIds by remember(watchlist) {
+        derivedStateOf { watchlist.mapTo(HashSet(watchlist.size)) { it.contentId } }
+    }
 
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
@@ -206,7 +216,7 @@ fun HomeScreen(
                 ) { _, item ->
                     MovieCardWithContextMenu(
                         movie = item,
-                        watchlistIds = watchlist.map { it.contentId }.toSet(),
+                        watchlistIds = watchlistIds,
                         onMenuShow = { actions ->
                             contextMenuActions = actions
                             contextMenuVisible = true
@@ -229,7 +239,7 @@ fun HomeScreen(
                 ) { _, movie ->
                     MovieCardWithContextMenu(
                         movie = movie,
-                        watchlistIds = watchlist.map { it.contentId }.toSet(),
+                        watchlistIds = watchlistIds,
                         onMenuShow = { actions ->
                             contextMenuActions = actions
                             contextMenuVisible = true
@@ -255,7 +265,7 @@ fun HomeScreen(
                 ) { _, movie ->
                     MovieCardWithContextMenu(
                         movie = movie,
-                        watchlistIds = watchlist.map { it.contentId }.toSet(),
+                        watchlistIds = watchlistIds,
                         onMenuShow = { actions ->
                             contextMenuActions = actions
                             contextMenuVisible = true

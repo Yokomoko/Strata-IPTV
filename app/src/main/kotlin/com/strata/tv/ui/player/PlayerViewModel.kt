@@ -301,6 +301,7 @@ class PlayerViewModel @Inject constructor(
     fun setChannelList(channels: List<ChannelPlayInfo>, index: Int) {
         channelList = channels
         currentChannelIndex = index.coerceIn(0, (channels.size - 1).coerceAtLeast(0))
+        _uiState.update { it.copy(currentChannelIndex = currentChannelIndex) }
     }
 
     /**
@@ -313,6 +314,7 @@ class PlayerViewModel @Inject constructor(
         if (channelList.isEmpty() || !isLive) return null
         val newIndex = (currentChannelIndex + delta).mod(channelList.size)
         currentChannelIndex = newIndex
+        _uiState.update { it.copy(currentChannelIndex = newIndex) }
         val channel = channelList[newIndex]
 
         // Re-initialize the player with the new stream.
@@ -553,6 +555,13 @@ data class PlayerUiState(
     val errorMessage: String? = null,
     val channelOverlayVisible: Boolean = false,
     val subtitlesEnabled: Boolean = false,
+    /**
+     * Current position in [PlayerViewModel.channelList] — drives the
+     * "Channel X of Y" counter in [ChannelOverlay].  Exposed through
+     * UI state (not a composable param) so the overlay updates after
+     * D-pad Up/Down switches channels.
+     */
+    val currentChannelIndex: Int = 0,
     /** Non-null while the next-episode countdown is active. */
     val nextEpisode: NextEpisodeInfo? = null,
 )

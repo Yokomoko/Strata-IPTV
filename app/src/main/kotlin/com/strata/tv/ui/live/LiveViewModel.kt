@@ -75,15 +75,22 @@ class LiveViewModel @Inject constructor(
     private val _selectedCategory = MutableStateFlow("All")
     val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
 
+    /**
+     * The content ID of the most recently watched live channel.
+     * Used by the UI to auto-scroll to the last-watched row.
+     */
+    private val _lastWatchedContentId = MutableStateFlow<String?>(null)
+    val lastWatchedContentId: StateFlow<String?> = _lastWatchedContentId.asStateFlow()
+
     val state: StateFlow<LiveUiState> = combine(
         _channels,
         _categories,
         _selectedCategory,
     ) { channels, categories, selected ->
-        val filtered = if (selected == "All") {
-            channels
-        } else {
-            channels.filter { it.category == selected }
+        val filtered = when (selected) {
+            "All" -> channels
+            "Favourites" -> channels.filter { it.isFavourite }
+            else -> channels.filter { it.category == selected }
         }
         LiveUiState(
             channels = filtered,
@@ -130,6 +137,30 @@ class LiveViewModel @Inject constructor(
         _selectedCategory.value = category
     }
 
+    /** Toggle the favourite status of a channel by its content ID. */
+    fun toggleFavourite(contentId: String, currentlyFavourite: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                channelDao.setFavourite(contentId, !currentlyFavourite)
+            }.onFailure { Log.e(TAG, "Failed to toggle favourite: $contentId", it) }
+        }
+    }
+
+    /**
+     * Mark a live channel as last-watched with the current timestamp.
+     * Called when the user starts playing a live channel.
+     */
+    fun markChannelWatched(contentId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                channelDao.markWatched(contentId, Instant.now())
+                _lastWatchedContentId.value = contentId
+            } catch (e: Throwable) {
+                Log.e(TAG, "Failed to mark channel as watched: $contentId", e)
+            }
+        }
+    }
+
     /**
      * Rebuild the guide in two phases so the channel list appears instantly:
      *
@@ -170,6 +201,7 @@ class LiveViewModel @Inject constructor(
                         logoUrl = channel.logoUrl,
                         channelNumber = channel.channelNumber,
                         category = category,
+                        isFavourite = channel.isFavourite,
                         nowTitle = null,
                         nowDescription = null,
                         nowStartTime = null,
@@ -190,13 +222,22 @@ class LiveViewModel @Inject constructor(
 
             _channels.value = phase1
 
+            // Add Favourites pseudo-category if any channels are favourited.
+            if (phase1.any { it.isFavourite }) categorySet.add("Favourites")
+
             // Sort categories by the defined display order.
             val order = ChannelCategorizer.displayOrder
             val sorted = categorySet.sortedBy { cat ->
                 val idx = order.indexOf(cat)
                 if (idx >= 0) idx else order.size
             }
-            _categories.value = listOf("All") + sorted
+            val finalCategories = listOf("All") + sorted
+            _categories.value = finalCategories
+
+            // Reset selected category if it's no longer valid.
+            if (_selectedCategory.value !in finalCategories) {
+                _selectedCategory.value = "All"
+            }
 
             Log.i(TAG, "Phase 1: ${phase1.size} channels rendered (no EPG yet)")
 
@@ -239,6 +280,14 @@ class LiveViewModel @Inject constructor(
 
             _channels.value = phase2
 
+            // Resolve the last-watched channel on first load.
+            if (_lastWatchedContentId.value == null) {
+                val lastWatched = phase2
+                    .filter { it.channelEntity.lastWatched != null }
+                    .maxByOrNull { it.channelEntity.lastWatched!! }
+                _lastWatchedContentId.value = lastWatched?.channelEntity?.contentId
+            }
+
             val withGuide = phase2.count { it.nowTitle != null }
             val total = phase2.size
             Log.i(
@@ -269,6 +318,7 @@ data class ChannelWithGuide(
     val logoUrl: String,
     val channelNumber: Int?,
     val category: String,
+    val isFavourite: Boolean = false,
     val nowTitle: String?,
     val nowDescription: String?,
     val nowStartTime: Instant? = null,

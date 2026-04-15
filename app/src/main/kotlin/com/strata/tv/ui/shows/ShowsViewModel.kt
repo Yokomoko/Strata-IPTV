@@ -4,9 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.strata.tv.data.db.SeriesDao
 import com.strata.tv.data.db.SeriesEntity
+import com.strata.tv.domain.GenreGrouper
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
@@ -15,47 +20,45 @@ import javax.inject.Inject
  * Drives [ShowsScreen].
  *
  * Streams all visible series, grouped by genre for the rail layout.
+ * Matches the structure of [MoviesViewModel] — rails rebuild on a
+ * separate flow gated by genre-signature distinctness so enrichment
+ * writes to poster/overview don't re-run the grouping pass during
+ * scroll.
  */
 @HiltViewModel
 class ShowsViewModel @Inject constructor(
     private val seriesDao: SeriesDao,
 ) : ViewModel() {
 
-    val state: StateFlow<ShowsUiState> = seriesDao.watchAll()
-        .map { allSeries ->
-            val hero = allSeries.firstOrNull { it.posterUrl.isNotBlank() }
-            val genreRails = buildGenreRails(allSeries)
-            ShowsUiState(
-                hero = hero,
-                allShows = allSeries,
-                genreRails = genreRails,
-            )
-        }
+    private val shows = seriesDao.watchAll()
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = ShowsUiState.Empty,
+            initialValue = emptyList(),
         )
 
-    private fun buildGenreRails(series: List<SeriesEntity>): List<ShowGenreRail> {
-        val byGenre = mutableMapOf<String, MutableList<SeriesEntity>>()
-        for (show in series) {
-            val genres = show.genre.split(",", "|", "/")
-                .map { it.trim() }
-                .filter { it.isNotBlank() }
-            if (genres.isEmpty()) {
-                byGenre.getOrPut("Uncategorised") { mutableListOf() }.add(show)
-            } else {
-                val primary = genres.first()
-                byGenre.getOrPut(primary) { mutableListOf() }.add(show)
-            }
-        }
-        return byGenre.entries
-            .filter { it.value.size >= 3 }
-            .sortedByDescending { it.value.size }
-            .take(15)
-            .map { (genre, items) -> ShowGenreRail(genre, items) }
-    }
+    private val genreRails = shows
+        .map { list -> list.map { it.seriesTitle to it.genre } }
+        .distinctUntilChanged()
+        .map { GenreGrouper.groupSeries(shows.value) }
+        .flowOn(Dispatchers.Default)
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = emptyList(),
+        )
+
+    val state: StateFlow<ShowsUiState> = combine(shows, genreRails) { list, rails ->
+        ShowsUiState(
+            hero = list.firstOrNull { it.posterUrl.isNotBlank() },
+            allShows = list,
+            genreRails = rails,
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = ShowsUiState.Empty,
+    )
 }
 
 data class ShowGenreRail(

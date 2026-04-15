@@ -46,6 +46,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.foundation.lazy.list.TvLazyColumn
 import androidx.tv.foundation.lazy.list.TvLazyRow
 import androidx.tv.foundation.lazy.list.items
+import androidx.tv.foundation.lazy.list.itemsIndexed
 import androidx.tv.foundation.lazy.list.rememberTvLazyListState
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -53,6 +54,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.strata.tv.ui.nav.AppNavState
+import com.strata.tv.ui.nav.ChannelPlayInfo
 import com.strata.tv.ui.nav.PlayerArgs
 import com.strata.tv.ui.theme.StrataColors
 import com.strata.tv.ui.widgets.CardContextMenu
@@ -152,6 +154,20 @@ fun LiveScreen(
                 },
             )
         } else {
+            // Build channel play info list for D-pad switching.
+            val channelPlayList = remember(state.channels) {
+                state.channels.map { ch ->
+                    ChannelPlayInfo(
+                        contentId = ch.channelEntity.contentId,
+                        streamUrl = ch.streamUrl,
+                        displayName = ch.displayName,
+                        logoUrl = ch.logoUrl,
+                        nowTitle = ch.nowTitle,
+                        nextTitle = ch.nextTitle,
+                    )
+                }
+            }
+
             TvLazyColumn(
                 state = listState,
                 contentPadding = PaddingValues(
@@ -161,10 +177,10 @@ fun LiveScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                items(
+                itemsIndexed(
                     items = state.channels,
-                    key = { it.channelEntity.contentId },
-                ) { channel ->
+                    key = { _, ch -> ch.channelEntity.contentId },
+                ) { channelIndex, channel ->
                     ChannelRow(
                         channel = channel,
                         onPlay = {
@@ -177,6 +193,8 @@ fun LiveScreen(
                                     contentType = "live",
                                     artworkUrl = channel.logoUrl,
                                     contentId = channel.channelEntity.contentId,
+                                    channelList = channelPlayList,
+                                    currentIndex = channelIndex,
                                 ),
                             )
                         },

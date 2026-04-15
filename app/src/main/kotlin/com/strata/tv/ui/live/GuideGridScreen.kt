@@ -20,6 +20,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -74,8 +76,14 @@ fun GuideGridScreen(
     }
 
     LaunchedEffect(channels, windowEnd) {
-        val programmes = programmeDao.inRange(now, windowEnd)
-        programmesByChannel = programmes.groupBy { it.channelId }
+        // Query + group off the main thread.  A 12h EPG window over
+        // hundreds of channels can produce 20k+ rows; the .groupBy hashing
+        // cost was running on Dispatchers.Main.immediate and causing grid
+        // open jank (perf review #4).
+        val grouped = withContext(Dispatchers.Default) {
+            programmeDao.inRange(now, windowEnd).groupBy { it.channelId }
+        }
+        programmesByChannel = grouped
     }
 
     // Time header + channel rows

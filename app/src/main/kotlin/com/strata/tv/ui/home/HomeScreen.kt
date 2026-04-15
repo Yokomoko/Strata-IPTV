@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -48,7 +49,9 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
+import androidx.compose.ui.platform.LocalContext
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
 import com.strata.tv.data.db.ContinueWatchingEntity
 import com.strata.tv.data.db.WatchlistEntity
 import com.strata.tv.data.db.MovieEntity
@@ -58,12 +61,9 @@ import com.strata.tv.ui.nav.AppNavState
 import com.strata.tv.ui.theme.StrataColors
 import com.strata.tv.ui.widgets.CardContextMenu
 import com.strata.tv.ui.widgets.ContextMenuAction
-import com.strata.tv.ui.widgets.Featured
-import com.strata.tv.ui.widgets.ImmersiveBackdrop
 import com.strata.tv.ui.widgets.PosterCard
 import com.strata.tv.ui.widgets.Rail
 import com.strata.tv.ui.widgets.ShimmerRail
-import com.strata.tv.ui.widgets.rememberFeaturedState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -85,6 +85,15 @@ fun HomeScreen(
     val genreRails by viewModel.genreRails.collectAsState()
     val providerRails by viewModel.providerRails.collectAsState()
     val watchlist by viewModel.watchlist.collectAsState()
+
+    // Compute the watchlist content-id set once per watchlist change and
+    // reuse across all three rails.  Previously recomputed inline three
+    // times per recomposition — during enrichment churn with 8+ rails
+    // that was ~24 Set<String> allocations per frame (idioms review #5,
+    // perf review #7).
+    val watchlistIds by remember(watchlist) {
+        derivedStateOf { watchlist.mapTo(HashSet(watchlist.size)) { it.contentId } }
+    }
 
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
@@ -207,7 +216,7 @@ fun HomeScreen(
                 ) { _, item ->
                     MovieCardWithContextMenu(
                         movie = item,
-                        watchlistIds = watchlist.map { it.contentId }.toSet(),
+                        watchlistIds = watchlistIds,
                         onMenuShow = { actions ->
                             contextMenuActions = actions
                             contextMenuVisible = true
@@ -230,7 +239,7 @@ fun HomeScreen(
                 ) { _, movie ->
                     MovieCardWithContextMenu(
                         movie = movie,
-                        watchlistIds = watchlist.map { it.contentId }.toSet(),
+                        watchlistIds = watchlistIds,
                         onMenuShow = { actions ->
                             contextMenuActions = actions
                             contextMenuVisible = true
@@ -256,7 +265,7 @@ fun HomeScreen(
                 ) { _, movie ->
                     MovieCardWithContextMenu(
                         movie = movie,
-                        watchlistIds = watchlist.map { it.contentId }.toSet(),
+                        watchlistIds = watchlistIds,
                         onMenuShow = { actions ->
                             contextMenuActions = actions
                             contextMenuVisible = true
@@ -306,9 +315,12 @@ private fun HeroCarousel(
     var currentIndex by remember { mutableIntStateOf(0) }
     var isPaused by remember { mutableStateOf(false) }
 
-    // Auto-cycle every 6 seconds, pause on focus
-    LaunchedEffect(currentIndex, isPaused, count) {
-        if (!isPaused && count > 1) {
+    // Auto-cycle every 6 seconds, pause on focus.  Keyed on isPaused only
+    // so populating hero candidates after enrichment doesn't spuriously
+    // reset the timer (idioms review #9).  A while-loop drives the
+    // advancement so we only launch one coroutine per (un)pause.
+    LaunchedEffect(isPaused, count > 1) {
+        while (!isPaused && count > 1) {
             delay(6_000)
             currentIndex = (currentIndex + 1) % count
         }
@@ -372,11 +384,13 @@ private fun HeroCarousel(
                 }
             },
     ) {
-        // Backdrop image with crossfade
+        // Backdrop image with crossfade (400 ms — halved from 800 ms to
+        // reduce the time two full-width bitmaps are composited together
+        // on a Fire Stick's modest GPU).
         AnimatedContent(
             targetState = currentIndex,
             transitionSpec = {
-                fadeIn(tween(800)) togetherWith fadeOut(tween(800))
+                fadeIn(tween(400)) togetherWith fadeOut(tween(400))
             },
             label = "hero-carousel",
         ) { index ->
@@ -389,7 +403,13 @@ private fun HeroCarousel(
             }
             if (url != null) {
                 AsyncImage(
-                    model = url,
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(url)
+                        // Pre-scale on the cache side — hero fills the screen
+                        // but Coil can still decode to a budget rather than
+                        // loading the full 1280-wide bitmap.
+                        .size(1280, 720)
+                        .build(),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
@@ -551,24 +571,8 @@ private fun StaticHero() {
 }
 
 // =====================================================================
-// Helper conversions + cards
+// Helper cards
 // =====================================================================
-
-private fun MovieListItem.toFeatured(): Featured = Featured(
-    key = "movie:$contentId",
-    title = movieTitle,
-    backdropUrl = posterUrl.takeIf { it.isNotBlank() },
-    subtitle = listOfNotNull(
-        year?.toString(),
-        genre.takeIf { it.isNotBlank() }?.split(",", "|")?.firstOrNull()?.trim(),
-    ).joinToString(" \u00B7 ").takeIf { it.isNotBlank() },
-)
-
-private fun ContinueWatchingEntity.toFeatured(): Featured = Featured(
-    key = "cw:$contentId",
-    title = contentId,
-    backdropUrl = artworkUrl.takeIf { it.isNotBlank() },
-)
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable

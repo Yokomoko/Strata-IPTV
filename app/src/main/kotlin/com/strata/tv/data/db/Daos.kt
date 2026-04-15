@@ -120,6 +120,15 @@ interface ChannelDao {
     @Query("SELECT * FROM channels")
     fun watchAll(): Flow<List<ChannelEntity>>
 
+    /**
+     * Count-only flow for screens that just need the channel total
+     * (e.g. Home's channel-count tile).  Materialising 1000+ rows
+     * via watchAll() just to call .size is wasteful on every
+     * markWatched / setFavourite write.
+     */
+    @Query("SELECT COUNT(*) FROM channels")
+    fun watchCount(): Flow<Int>
+
     @Query("SELECT * FROM channels WHERE is_favourite = 1")
     fun watchFavourites(): Flow<List<ChannelEntity>>
 
@@ -184,12 +193,17 @@ interface MovieDao {
     )
     fun watchRecentWithPosters(limit: Int = 20): Flow<List<MovieListItem>>
 
-    /** Recent movies with backdrops for the Home hero carousel (full entity for overview/cast). */
+    /**
+     * Recent movies with backdrops for the Home hero carousel (full
+     * entity for overview/cast).  Dynamic window: "released this year
+     * or the last 3 calendar years" so the hero doesn't silently empty
+     * out in 2031 (quality review #13 — ticking time bomb).
+     */
     @Query(
         """
         SELECT * FROM movies
         WHERE hidden = 0 AND backdrop_url != '' AND poster_url != ''
-          AND (year IS NULL OR year BETWEEN 2025 AND 2030)
+          AND (year IS NULL OR year >= CAST(strftime('%Y', 'now') AS INTEGER) - 3)
         ORDER BY rating DESC
         LIMIT :limit
         """,
@@ -384,7 +398,7 @@ interface SeriesDao {
     @Query("SELECT * FROM series WHERE hidden = 0")
     fun watchAll(): Flow<List<SeriesEntity>>
 
-    @Query("SELECT * FROM series WHERE series_title = :title OR LOWER(series_title) = LOWER(:title) LIMIT 1")
+    @Query("SELECT * FROM series WHERE series_title = :title COLLATE NOCASE LIMIT 1")
     suspend fun byTitle(title: String): SeriesEntity?
 
     @Query(
@@ -491,13 +505,13 @@ interface EpisodeDao {
     @Upsert
     suspend fun upsertAll(episodes: List<EpisodeEntity>)
 
-    @Query("SELECT * FROM episodes WHERE series_title = :title OR LOWER(series_title) = LOWER(:title) ORDER BY season_number, episode_number")
+    @Query("SELECT * FROM episodes WHERE series_title = :title COLLATE NOCASE ORDER BY season_number, episode_number")
     fun watchSeries(title: String): Flow<List<EpisodeEntity>>
 
     /** First episode of a series (lowest season, then lowest episode) — for "play series" shortcuts. */
     @Query(
         """
-        SELECT * FROM episodes WHERE series_title = :title OR LOWER(series_title) = LOWER(:title)
+        SELECT * FROM episodes WHERE series_title = :title COLLATE NOCASE
         ORDER BY season_number, episode_number LIMIT 1
         """,
     )
@@ -515,6 +529,25 @@ interface EpisodeDao {
         """,
     )
     suspend fun updateName(series: String, season: Int, episode: Int, title: String)
+
+    /**
+     * Look up the next episode after (season, episode) within the same series.
+     * Tries the next episode in the same season first, then the first episode
+     * of the next season.
+     */
+    @Query(
+        """
+        SELECT * FROM episodes
+        WHERE (series_title = :seriesTitle COLLATE NOCASE)
+          AND (
+            (season_number = :season AND episode_number > :episode)
+            OR season_number > :season
+          )
+        ORDER BY season_number ASC, episode_number ASC
+        LIMIT 1
+        """,
+    )
+    suspend fun nextEpisode(seriesTitle: String, season: Int, episode: Int): EpisodeEntity?
 }
 
 // ---------------------------------------------------------------------------

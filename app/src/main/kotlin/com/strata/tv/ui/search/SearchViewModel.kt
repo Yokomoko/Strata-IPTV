@@ -2,7 +2,6 @@ package com.strata.tv.ui.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.sqlite.db.SimpleSQLiteQuery
 import com.strata.tv.data.db.ContentDao
 import com.strata.tv.data.db.ContentItemEntity
 import com.strata.tv.domain.FuzzyMatch
@@ -65,27 +64,7 @@ class SearchViewModel @Inject constructor(
         if (query.length < 2) return SearchUiState.Empty
 
         val builtQuery = ContentDao.buildSearchQuery(query)
-        android.util.Log.w("Search", "[Search] SQL: ${builtQuery.sql}")
         val raw = contentDao.searchRaw(builtQuery)
-        android.util.Log.w("Search", "[Search] query='$query' → ${raw.size} candidates")
-        // Debug: deep diagnostic across all tables
-        if (raw.isEmpty() && query.length >= 4) {
-            query.split(" ").filter { it.length >= 4 }.forEach { w ->
-                val prefix = w.lowercase().take(4)
-                // Check content_items (including hidden)
-                val allItemsSql = SimpleSQLiteQuery(
-                    "SELECT content_id, display_name, title, content_type FROM content_items WHERE LOWER(display_name) LIKE ? OR LOWER(title) LIKE ? LIMIT 5",
-                    arrayOf("%$prefix%", "%$prefix%"),
-                )
-                val allItems = contentDao.searchRaw(
-                    SimpleSQLiteQuery(
-                        "SELECT * FROM content_items WHERE LOWER(display_name) LIKE ? OR LOWER(title) LIKE ? LIMIT 5",
-                        arrayOf("%${w.lowercase()}%", "%${w.lowercase()}%"),
-                    ),
-                )
-                android.util.Log.w("Search", "[Search] FULL word='$w' → ${allItems.size} hits${if (allItems.isNotEmpty()) allItems.take(3).joinToString { " | ${it.contentType}:'${it.displayName.take(50)}' hidden?title='${it.title.take(30)}'" } else ""}")
-            }
-        }
         if (raw.isEmpty()) return SearchUiState.NoResults
 
         // Score + filter (drop anything that scores 0).

@@ -1,8 +1,14 @@
 package com.strata.tv.ui.home
 
+import android.app.Application
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.strata.tv.AppConfig
 import com.strata.tv.data.db.ChannelDao
 import com.strata.tv.data.db.ContentDao
@@ -17,12 +23,14 @@ import com.strata.tv.data.db.WatchlistDao
 import com.strata.tv.data.db.WatchlistEntity
 import com.strata.tv.data.repo.BootstrapRepository
 import com.strata.tv.data.repo.SyncService
+import com.strata.tv.data.repo.SyncWorker
 import com.strata.tv.data.tmdb.EnrichmentProgressTracker
 import com.strata.tv.data.tmdb.MovieEnrichmentService
 import com.strata.tv.data.tmdb.SeriesEnrichmentService
 import com.strata.tv.domain.MovieDeduplicator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -33,6 +41,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /**
@@ -45,6 +54,7 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class HomeViewModel @Inject constructor(
+    private val application: Application,
     private val bootstrap: BootstrapRepository,
     private val syncService: SyncService,
     private val movieDeduplicator: MovieDeduplicator,
@@ -62,28 +72,49 @@ class HomeViewModel @Inject constructor(
 
     // -- Core state (lightweight flows) --------------------------------
 
-    @Suppress("UNCHECKED_CAST")
-    val state: StateFlow<HomeUiState> = combine(
+    /**
+     * Home state assembled from six upstream flows.
+     *
+     * Uses two three-arity `combine` stages instead of the variadic
+     * array overload so every cast is compiler-checked.  The six-arity
+     * variant required `@Suppress("UNCHECKED_CAST")` + manual index
+     * casts, where any reordering silently produced a ClassCastException
+     * at runtime (idioms review #1 — crash risk).
+     *
+     * `channelDao.watchCount()` replaces `watchAll()` here so the
+     * whole channel list isn't materialised just to take `.size`
+     * (perf review #6).
+     */
+    private val counts: Flow<Triple<Int, Int, Int>> = combine(
         movieDao.watchVisibleCount(),
         seriesDao.watchCount(),
-        channelDao.watchAll(),
+        channelDao.watchCount(),
+    ) { movies, series, channels ->
+        Triple(movies, series, channels)
+    }
+
+    private data class HomeLists(
+        val continueWatching: List<ContinueWatchingEntity>,
+        val recentMovies: List<MovieListItem>,
+        val heroCandidates: List<MovieEntity>,
+    )
+
+    private val lists: Flow<HomeLists> = combine(
         cwDao.watchAll(),
         movieDao.watchRecentWithPosters(limit = 20),
         movieDao.watchHeroCandidates(limit = 5),
-    ) { values ->
-        val movies = values[0] as Int
-        val series = values[1] as Int
-        val channels = values[2] as List<*>
-        val cw = values[3] as List<ContinueWatchingEntity>
-        val recentMovies = values[4] as List<MovieListItem>
-        val heroCandidates = values[5] as List<MovieEntity>
+    ) { cw, recent, heroes ->
+        HomeLists(cw, recent, heroes)
+    }
+
+    val state: StateFlow<HomeUiState> = combine(counts, lists) { (movies, series, channels), l ->
         HomeUiState(
-            channelCount = channels.size,
+            channelCount = channels,
             movieCount = movies,
             seriesCount = series,
-            continueWatching = cw,
-            recentMovies = recentMovies,
-            heroCandidates = heroCandidates,
+            continueWatching = l.continueWatching,
+            recentMovies = l.recentMovies,
+            heroCandidates = l.heroCandidates,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -137,32 +168,26 @@ class HomeViewModel @Inject constructor(
         watchlistDao.watchIsInWatchlist(contentId).first()
 
     init {
+        // Schedule periodic background sync via WorkManager (every 12h,
+        // network-required).  This replaces the old forced-every-launch
+        // sync and keeps the library fresh without blocking app start.
+        schedulePeriodicSync()
+
         viewModelScope.launch {
             val sourceId = bootstrap.ensureSource()
             enrichmentTracker.startSync()
 
-            // Only sync if this is the first run (0 movies) or the
-            // last sync was more than 24 hours ago.
+            // Only do an immediate sync if the DB is empty (first run)
+            // — periodic WorkManager handles the rest.
+            // TODO: consider restoring a >24h staleness check as a safety
+            // net since WorkManager may not fire for days on Fire Stick
+            // under Doze/battery optimization (flagged in pr-review-report.md).
             val movieCount = movieDao.watchVisibleCount().first()
-            val source = sourceDao.all().firstOrNull()
-            val lastSynced = source?.lastSynced
-            val stale = lastSynced == null ||
-                Duration.between(lastSynced, Instant.now()).toHours() >= 24
-
-            if (movieCount == 0 || stale) {
+            if (movieCount == 0) {
                 runCatching { syncService.syncFromUrl(AppConfig.PLAYLIST_URL, sourceId) }
                     .onSuccess {
                         runCatching { sourceDao.markSynced(sourceId, Instant.now()) }
                     }
-            }
-
-            // Diagnostic: log content counts by type
-            launch(Dispatchers.IO) {
-                val allContent = contentDao.byType("movie")
-                val showContent = contentDao.byType("show")
-                val liveContent = contentDao.byType("live")
-                val seriesCount = seriesDao.watchCount().first()
-                android.util.Log.w("HomeVM", "[DB] movies=${allContent.size} shows=${showContent.size} live=${liveContent.size} series=$seriesCount")
             }
 
             // Deduplicate quality variants *before* enrichment so we
@@ -251,6 +276,31 @@ class HomeViewModel @Inject constructor(
         } catch (e: Throwable) {
             Log.w("HomeViewModel", "Provider rail build failed", e)
         }
+    }
+
+    /**
+     * Enqueue a periodic WorkManager task that syncs the M3U playlist
+     * every 12 hours when a network connection is available.
+     * Uses [ExistingPeriodicWorkPolicy.KEEP] so re-entering the Home
+     * screen doesn't reset the schedule.
+     */
+    private fun schedulePeriodicSync() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        val request = PeriodicWorkRequestBuilder<SyncWorker>(
+            repeatInterval = 12,
+            repeatIntervalTimeUnit = TimeUnit.HOURS,
+        )
+            .setConstraints(constraints)
+            .build()
+
+        WorkManager.getInstance(application).enqueueUniquePeriodicWork(
+            SyncWorker.WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            request,
+        )
     }
 }
 

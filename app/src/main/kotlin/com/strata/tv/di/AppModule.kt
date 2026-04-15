@@ -8,6 +8,7 @@ import com.strata.tv.data.db.ContentDao
 import com.strata.tv.data.db.ContinueWatchingDao
 import com.strata.tv.data.db.EpisodeDao
 import com.strata.tv.data.db.FavouriteDao
+import com.strata.tv.data.db.MIGRATION_3_4
 import com.strata.tv.data.db.MovieDao
 import com.strata.tv.data.db.ProgrammeDao
 import com.strata.tv.data.db.SeriesDao
@@ -47,9 +48,11 @@ object AppModule {
             // Default WAL mode is fine — large EPG writes don't block
             // concurrent reads from the home screen.
             //
-            // Pre-1.0: destructive migration is acceptable — there's no
-            // user data worth preserving yet.  The M3U sync repopulates
-            // the library on next launch and TMDB enrichment re-runs.
+            // Real migrations for every schema bump so user data —
+            // favourites, watchlist, continue-watching, last-watched
+            // channel — survives app updates.  Destructive fallback is
+            // a last-resort safety net, not the happy path.
+            .addMigrations(MIGRATION_3_4)
             .fallbackToDestructiveMigration()
             .build()
     }

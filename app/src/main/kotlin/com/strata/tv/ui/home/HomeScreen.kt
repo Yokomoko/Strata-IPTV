@@ -48,7 +48,9 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
+import androidx.compose.ui.platform.LocalContext
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
 import com.strata.tv.data.db.ContinueWatchingEntity
 import com.strata.tv.data.db.WatchlistEntity
 import com.strata.tv.data.db.MovieEntity
@@ -303,9 +305,12 @@ private fun HeroCarousel(
     var currentIndex by remember { mutableIntStateOf(0) }
     var isPaused by remember { mutableStateOf(false) }
 
-    // Auto-cycle every 6 seconds, pause on focus
-    LaunchedEffect(currentIndex, isPaused, count) {
-        if (!isPaused && count > 1) {
+    // Auto-cycle every 6 seconds, pause on focus.  Keyed on isPaused only
+    // so populating hero candidates after enrichment doesn't spuriously
+    // reset the timer (idioms review #9).  A while-loop drives the
+    // advancement so we only launch one coroutine per (un)pause.
+    LaunchedEffect(isPaused, count > 1) {
+        while (!isPaused && count > 1) {
             delay(6_000)
             currentIndex = (currentIndex + 1) % count
         }
@@ -369,11 +374,13 @@ private fun HeroCarousel(
                 }
             },
     ) {
-        // Backdrop image with crossfade
+        // Backdrop image with crossfade (400 ms — halved from 800 ms to
+        // reduce the time two full-width bitmaps are composited together
+        // on a Fire Stick's modest GPU).
         AnimatedContent(
             targetState = currentIndex,
             transitionSpec = {
-                fadeIn(tween(800)) togetherWith fadeOut(tween(800))
+                fadeIn(tween(400)) togetherWith fadeOut(tween(400))
             },
             label = "hero-carousel",
         ) { index ->
@@ -386,7 +393,13 @@ private fun HeroCarousel(
             }
             if (url != null) {
                 AsyncImage(
-                    model = url,
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(url)
+                        // Pre-scale on the cache side — hero fills the screen
+                        // but Coil can still decode to a budget rather than
+                        // loading the full 1280-wide bitmap.
+                        .size(1280, 720)
+                        .build(),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),

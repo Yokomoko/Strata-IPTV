@@ -11,7 +11,9 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.LoadControl
 import com.strata.tv.data.db.ChannelDao
 import com.strata.tv.data.db.ContentDao
 import com.strata.tv.data.db.ContinueWatchingDao
@@ -70,7 +72,33 @@ class PlayerViewModel @Inject constructor(
 
     // ── ExoPlayer ────────────────────────────────────────────────────
 
-    val player: ExoPlayer = ExoPlayer.Builder(application).build()
+    /**
+     * Fire-Stick-tuned [DefaultLoadControl]:
+     *
+     * Media3 defaults target desktop-class hardware (50 s min/max buffer,
+     * 2.5 s for playback, 5 s for playback after rebuffer).  Holding ~50 s
+     * of decoded video competes with Compose's layer cache, Coil's image
+     * cache, and Room's cursor buffers on a Fire Stick with ~512 MB app
+     * heap — one of the likely contributors to the occasional crashes
+     * the user has been seeing.
+     *
+     * New budget: 15 s target buffer, 8 s minimum, 1.5 s for playback
+     * start, 2.5 s after rebuffer.  Live streams genuinely cannot be
+     * buffered ahead anyway, so this is free savings there.
+     */
+    private val loadControl: LoadControl = DefaultLoadControl.Builder()
+        .setBufferDurationsMs(
+            /* minBufferMs = */ 8_000,
+            /* maxBufferMs = */ 15_000,
+            /* bufferForPlaybackMs = */ 1_500,
+            /* bufferForPlaybackAfterRebufferMs = */ 2_500,
+        )
+        .setPrioritizeTimeOverSizeThresholds(true)
+        .build()
+
+    val player: ExoPlayer = ExoPlayer.Builder(application)
+        .setLoadControl(loadControl)
+        .build()
 
     // ── UI state ─────────────────────────────────────────────────────
 

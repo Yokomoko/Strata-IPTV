@@ -58,12 +58,9 @@ import com.strata.tv.ui.nav.AppNavState
 import com.strata.tv.ui.theme.StrataColors
 import com.strata.tv.ui.widgets.CardContextMenu
 import com.strata.tv.ui.widgets.ContextMenuAction
-import com.strata.tv.ui.widgets.Featured
-import com.strata.tv.ui.widgets.ImmersiveBackdrop
 import com.strata.tv.ui.widgets.PosterCard
 import com.strata.tv.ui.widgets.Rail
 import com.strata.tv.ui.widgets.ShimmerRail
-import com.strata.tv.ui.widgets.rememberFeaturedState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -551,24 +548,8 @@ private fun StaticHero() {
 }
 
 // =====================================================================
-// Helper conversions + cards
+// Helper cards
 // =====================================================================
-
-private fun MovieListItem.toFeatured(): Featured = Featured(
-    key = "movie:$contentId",
-    title = movieTitle,
-    backdropUrl = posterUrl.takeIf { it.isNotBlank() },
-    subtitle = listOfNotNull(
-        year?.toString(),
-        genre.takeIf { it.isNotBlank() }?.split(",", "|")?.firstOrNull()?.trim(),
-    ).joinToString(" \u00B7 ").takeIf { it.isNotBlank() },
-)
-
-private fun ContinueWatchingEntity.toFeatured(): Featured = Featured(
-    key = "cw:$contentId",
-    title = contentId,
-    backdropUrl = artworkUrl.takeIf { it.isNotBlank() },
-)
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable

@@ -168,15 +168,6 @@ class HomeViewModel @Inject constructor(
                     }
             }
 
-            // Diagnostic: log content counts by type
-            launch(Dispatchers.IO) {
-                val allContent = contentDao.byType("movie")
-                val showContent = contentDao.byType("show")
-                val liveContent = contentDao.byType("live")
-                val seriesCount = seriesDao.watchCount().first()
-                android.util.Log.w("HomeVM", "[DB] movies=${allContent.size} shows=${showContent.size} live=${liveContent.size} series=$seriesCount")
-            }
-
             // Deduplicate quality variants *before* enrichment so we
             // don't waste TMDB calls on hidden duplicates.
             launch(Dispatchers.IO) {

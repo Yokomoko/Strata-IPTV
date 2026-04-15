@@ -484,7 +484,11 @@ fun PlayerScreen(
             ChannelOverlay(
                 visible = state.channelOverlayVisible,
                 channel = viewModel.currentChannel(),
-                channelIndex = currentChannelIndex,
+                // Reactive index from UI state so the "Channel X of Y"
+                // counter updates after D-pad Up/Down switches channels
+                // (the composable `currentChannelIndex` param is fixed
+                // to the initial navigation value).
+                channelIndex = state.currentChannelIndex,
                 channelCount = channelList.size,
             )
         }

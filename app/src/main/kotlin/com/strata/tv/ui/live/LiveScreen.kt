@@ -59,6 +59,8 @@ import com.strata.tv.ui.nav.PlayerArgs
 import com.strata.tv.ui.theme.StrataColors
 import com.strata.tv.ui.widgets.CardContextMenu
 import com.strata.tv.ui.widgets.ContextMenuAction
+import java.time.Duration
+import java.time.Instant
 
 /**
  * Live TV screen — cinematic header + category chips + 1D channel list
@@ -80,6 +82,11 @@ fun LiveScreen(
     val epgLoading by viewModel.epgLoading.collectAsState()
     val lastWatchedContentId by viewModel.lastWatchedContentId.collectAsState()
     var showGrid by remember { mutableStateOf(false) }
+
+    // Refresh now/next EPG data whenever the Live tab is (re)composed (#18).
+    LaunchedEffect(Unit) {
+        viewModel.refreshOnResume()
+    }
 
     // Context menu state
     var contextMenuChannel by remember { mutableStateOf<ChannelWithGuide?>(null) }
@@ -128,6 +135,7 @@ fun LiveScreen(
             isLoading = epgLoading,
             showGrid = showGrid,
             onToggleGrid = { showGrid = !showGrid },
+            lastRefreshed = state.lastRefreshed,
         )
 
         // Category chips
@@ -217,6 +225,7 @@ private fun LiveHeader(
     isLoading: Boolean,
     showGrid: Boolean,
     onToggleGrid: () -> Unit,
+    lastRefreshed: Instant? = null,
 ) {
     Box(
         modifier = Modifier
@@ -250,11 +259,29 @@ private fun LiveHeader(
                     letterSpacing = (-0.3).sp,
                 )
                 Spacer(Modifier.height(2.dp))
-                Text(
-                    text = if (isLoading) "Loading guide data\u2026" else "$channelCount channels",
-                    color = StrataColors.TextTertiary,
-                    fontSize = 13.sp,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (isLoading) "Loading guide data\u2026" else "$channelCount channels",
+                        color = StrataColors.TextTertiary,
+                        fontSize = 13.sp,
+                    )
+                    // "Updated X min ago" timestamp (#18)
+                    if (!isLoading && lastRefreshed != null) {
+                        val agoText = formatTimeAgo(lastRefreshed)
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            text = "\u00B7",
+                            color = StrataColors.TextTertiary,
+                            fontSize = 13.sp,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "Updated $agoText",
+                            color = StrataColors.TextTertiary,
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
             }
 
             // List / Grid toggle
@@ -547,6 +574,23 @@ private fun LoadingState() {
                 color = StrataColors.TextTertiary,
                 fontSize = 13.sp,
             )
+        }
+    }
+}
+
+/**
+ * Formats a timestamp as a human-readable "X min ago" / "X hr ago"
+ * string, suitable for the EPG "Updated ..." label (#18).
+ */
+private fun formatTimeAgo(instant: Instant): String {
+    val elapsed = Duration.between(instant, Instant.now())
+    val minutes = elapsed.toMinutes()
+    return when {
+        minutes < 1 -> "just now"
+        minutes < 60 -> "$minutes min ago"
+        else -> {
+            val hours = elapsed.toHours()
+            if (hours == 1L) "1 hr ago" else "$hours hrs ago"
         }
     }
 }

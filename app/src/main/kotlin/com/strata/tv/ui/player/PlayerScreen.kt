@@ -158,8 +158,19 @@ fun PlayerScreen(
                         viewModel.showControls()
                         true
                     }
+                    // Fav mode: Menu button toggles fav zapping (#11)
+                    KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_BOOKMARK -> {
+                        if (isLive) {
+                            viewModel.toggleFavMode()
+                            true
+                        } else false
+                    }
+                    // D-pad Up: zap favourites if fav mode on, else normal channel switch.
                     KeyEvent.KEYCODE_DPAD_UP -> {
-                        if (isLive && channelList.isNotEmpty()) {
+                        if (state.favModeEnabled) {
+                            viewModel.zapFavourite(-1)
+                            true
+                        } else if (isLive && channelList.isNotEmpty()) {
                             val ch = viewModel.switchChannel(-1)
                             if (ch != null) displayTitle = ch.displayName
                             true
@@ -169,7 +180,10 @@ fun PlayerScreen(
                         }
                     }
                     KeyEvent.KEYCODE_DPAD_DOWN -> {
-                        if (isLive && channelList.isNotEmpty()) {
+                        if (state.favModeEnabled) {
+                            viewModel.zapFavourite(+1)
+                            true
+                        } else if (isLive && channelList.isNotEmpty()) {
                             val ch = viewModel.switchChannel(+1)
                             if (ch != null) displayTitle = ch.displayName
                             true
@@ -325,7 +339,7 @@ fun PlayerScreen(
                         ),
                 )
 
-                // Top bar -- back + title + live badge
+                // Top bar -- back + title + FAV badge + live badge
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -340,13 +354,30 @@ fun PlayerScreen(
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(
-                        text = displayTitle,
+                        text = state.channelDisplayName ?: displayTitle,
                         color = Color.White,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         modifier = Modifier.weight(1f),
                     )
+                    // FAV badge (#11)
+                    if (state.favModeEnabled) {
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(StrataColors.AccentSecondary)
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                        ) {
+                            Text(
+                                text = "FAV",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
                     // CC toggle
                     val subs by viewModel.subtitleTracks.collectAsState()
                     if (subs.isNotEmpty()) {

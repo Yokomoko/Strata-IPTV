@@ -9,21 +9,29 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
+import com.strata.tv.data.db.ChannelDao
 import com.strata.tv.data.db.ContentDao
 import com.strata.tv.data.db.ContinueWatchingDao
 import com.strata.tv.data.db.ContinueWatchingEntity
 import com.strata.tv.data.db.EpisodeDao
+import com.strata.tv.data.db.EpisodeEntity
 import com.strata.tv.data.db.WatchHistoryDao
 import com.strata.tv.data.db.WatchHistoryEntity
+import com.strata.tv.domain.ChannelDeduplicator
 import com.strata.tv.ui.nav.ChannelPlayInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -44,12 +52,18 @@ import javax.inject.Inject
  * notification-emitting saves happen on exit and on pause-to-play
  * transitions so the home screen's Continue Watching rail refreshes at
  * natural navigation boundaries.
+ *
+ * **Fav mode** (#11): when watching live TV, pressing the Menu button
+ * toggles "favourite channel zapping".  In fav mode, D-pad Up/Down
+ * cycles through only favourite channels (Sky-style), and a "FAV"
+ * badge appears on the mini overlay.
  */
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     application: Application,
     private val cwDao: ContinueWatchingDao,
     private val historyDao: WatchHistoryDao,
+    private val channelDao: ChannelDao,
     private val episodeDao: EpisodeDao,
     private val contentDao: ContentDao,
 ) : AndroidViewModel(application) {
@@ -96,6 +110,19 @@ class PlayerViewModel @Inject constructor(
     // ── Subtitle tracks ─────────────────────────────────────────────
     private val _subtitleTracks = MutableStateFlow<List<SubtitleTrack>>(emptyList())
     val subtitleTracks: StateFlow<List<SubtitleTrack>> = _subtitleTracks.asStateFlow()
+
+    // ── Fav mode state (#11) ─────────────────────────────────────────
+
+    /**
+     * Resolved favourite channel list, loaded once from [ChannelDao.watchFavourites].
+     * Each pair is (displayName, streamUrl) matching the channel content.
+     */
+    private var favouriteChannels: List<FavChannel> = emptyList()
+
+    /** One-shot event to inform the Shell/nav layer that a channel switch happened. */
+    data class ChannelSwitchEvent(val streamUrl: String, val title: String, val artworkUrl: String)
+    private val _channelSwitchEvent = MutableSharedFlow<ChannelSwitchEvent>(extraBufferCapacity = 1)
+    val channelSwitchEvent: SharedFlow<ChannelSwitchEvent> = _channelSwitchEvent.asSharedFlow()
 
     // ── Player listener ──────────────────────────────────────────────
 
@@ -443,6 +470,106 @@ class PlayerViewModel @Inject constructor(
         insertWatchHistory()
     }
 
+    // ── Fav mode (#11) ──────────────────────────────────────────────
+
+    /**
+     * Toggle favourite-channel zapping mode.  Only meaningful during
+     * live playback.  When enabled, [zapFavourite] cycles through only
+     * channels marked as favourites.
+     */
+    fun toggleFavMode() {
+        if (!isLive) return
+        val newEnabled = !_uiState.value.favModeEnabled
+        _uiState.update { it.copy(favModeEnabled = newEnabled) }
+        if (newEnabled) {
+            loadFavourites()
+        }
+        showControls()
+    }
+
+    /**
+     * Cycle to the next (+1) or previous (-1) favourite channel.
+     * No-op if fav mode is disabled or the list is empty.
+     *
+     * @param direction +1 for next (D-pad Down), -1 for previous (D-pad Up).
+     */
+    fun zapFavourite(direction: Int) {
+        if (!_uiState.value.favModeEnabled) return
+        val favs = favouriteChannels
+        if (favs.isEmpty()) return
+
+        // Find the current channel in the favourite list.
+        val currentIdx = favs.indexOfFirst { it.streamUrl == streamUrl }
+        val nextIdx = if (currentIdx < 0) {
+            // Current channel is not in favourites — jump to first.
+            0
+        } else {
+            // Wrap around.
+            (currentIdx + direction).mod(favs.size)
+        }
+
+        val target = favs[nextIdx]
+        switchToChannel(target)
+    }
+
+    private fun switchToChannel(target: FavChannel) {
+        // Save current position before switching.
+        saveFullContinueWatching()
+
+        // Update stream parameters.
+        this.streamUrl = target.streamUrl
+        this.title = target.displayName
+        this.artworkUrl = target.logoUrl
+
+        // Reset per-stream state.
+        resumeApplied = false
+        _uiState.update {
+            it.copy(
+                isBuffering = true,
+                errorMessage = null,
+                channelDisplayName = target.displayName,
+            )
+        }
+
+        // Switch the ExoPlayer media item.
+        player.setMediaItem(MediaItem.fromUri(target.streamUrl))
+        player.playWhenReady = true
+        player.prepare()
+
+        // Notify the nav layer so PlayerArgs stays in sync.
+        _channelSwitchEvent.tryEmit(ChannelSwitchEvent(target.streamUrl, target.displayName, target.logoUrl))
+
+        showControls()
+    }
+
+    private fun loadFavourites() {
+        viewModelScope.launch {
+            val favChannels = channelDao.watchFavourites().first()
+            if (favChannels.isEmpty()) {
+                favouriteChannels = emptyList()
+                return@launch
+            }
+
+            // Resolve display names and stream URLs from content_items.
+            val liveContent = contentDao.byType("live")
+            val contentById = liveContent.associateBy { it.contentId }
+
+            favouriteChannels = favChannels.mapNotNull { ch ->
+                val content = contentById[ch.contentId] ?: return@mapNotNull null
+                FavChannel(
+                    contentId = ch.contentId,
+                    displayName = ChannelDeduplicator.cleanChannelName(content.displayName),
+                    streamUrl = content.streamUrl,
+                    logoUrl = ch.logoUrl,
+                    channelNumber = ch.channelNumber,
+                )
+            }.sortedWith(
+                compareBy<FavChannel> { it.channelNumber ?: Int.MAX_VALUE }
+                    .thenBy { it.displayName.lowercase() },
+            )
+        }
+    }
+
     // ── Controls visibility ──────────────────────────────────────────
 
     private var hideJob: Job? = null
@@ -569,6 +696,10 @@ data class PlayerUiState(
     val currentChannelIndex: Int = 0,
     /** Non-null while the next-episode countdown is active. */
     val nextEpisode: NextEpisodeInfo? = null,
+    /** True when favourite-channel zapping is active (#11). */
+    val favModeEnabled: Boolean = false,
+    /** Display name of the current channel (updated on fav zap). */
+    val channelDisplayName: String? = null,
 )
 
 /** A single subtitle/CC track available in the current stream. */
@@ -588,4 +719,15 @@ data class NextEpisodeInfo(
     val episodeNumber: Int,
     val episodeTitle: String,
     val countdown: Int,
+)
+
+/**
+ * Lightweight model for a favourite channel used by fav-mode zapping.
+ */
+data class FavChannel(
+    val contentId: String,
+    val displayName: String,
+    val streamUrl: String,
+    val logoUrl: String,
+    val channelNumber: Int?,
 )

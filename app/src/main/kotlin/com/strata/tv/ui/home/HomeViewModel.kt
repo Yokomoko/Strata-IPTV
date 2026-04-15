@@ -155,15 +155,13 @@ class HomeViewModel @Inject constructor(
             val sourceId = bootstrap.ensureSource()
             enrichmentTracker.startSync()
 
-            // Only sync if first run (0 movies) or stale (>24h).
-            // WorkManager handles periodic background sync.
+            // Only do an immediate sync if the DB is empty (first run)
+            // — periodic WorkManager handles the rest.
+            // TODO: consider restoring a >24h staleness check as a safety
+            // net since WorkManager may not fire for days on Fire Stick
+            // under Doze/battery optimization (flagged in pr-review-report.md).
             val movieCount = movieDao.watchVisibleCount().first()
-            val source = sourceDao.all().firstOrNull()
-            val lastSynced = source?.lastSynced
-            val stale = lastSynced == null ||
-                Duration.between(lastSynced, Instant.now()).toHours() >= 24
-
-            if (movieCount == 0 || stale) {
+            if (movieCount == 0) {
                 runCatching { syncService.syncFromUrl(AppConfig.PLAYLIST_URL, sourceId) }
                     .onSuccess {
                         runCatching { sourceDao.markSynced(sourceId, Instant.now()) }

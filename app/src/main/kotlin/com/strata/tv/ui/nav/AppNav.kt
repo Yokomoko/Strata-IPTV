@@ -99,6 +99,8 @@ data class PlayerArgs(
     val resumePositionMs: Long = 0L,
     val contentType: String = "movie",
     val artworkUrl: String = "",
+    /** Content ID for tracking (e.g. marking a live channel as last-watched). */
+    val contentId: String = "",
     /** For live playback: the full filtered channel list for D-pad switching. */
     val channelList: List<ChannelPlayInfo> = emptyList(),
     /** Index of the currently-playing channel within [channelList]. */

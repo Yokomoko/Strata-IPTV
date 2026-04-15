@@ -82,21 +82,6 @@ class SyncService @Inject constructor(
     suspend fun syncFromUrl(playlistUrl: String, sourceId: Int) {
         try {
             _progress.value = Progress.Downloading(0)
-            // OkHttp's Call.execute() blocks and MUST run off the
-            // main thread — otherwise it throws
-            // NetworkOnMainThreadException whose `message` is sometimes
-            // null, surfacing in the UI as "Sync failed during
-            // download: null".  Force IO dispatcher.
-            val body = withContext(Dispatchers.IO) {
-                http.newCall(Request.Builder().url(playlistUrl).build())
-                    .execute()
-                    .use { response ->
-                        if (!response.isSuccessful) {
-                            error("HTTP ${response.code} fetching $playlistUrl")
-                        }
-                        response.body?.string() ?: error("Empty playlist body")
-                    }
-            }
 
             // Buffer entries by content type so we can group + dedupe at
             // the end.  Dedup needs the full live list before it can
@@ -105,25 +90,48 @@ class SyncService @Inject constructor(
             val movies = mutableListOf<M3uEntry>()
             val episodes = mutableListOf<M3uEntry>()
 
-            parser.parse(body).collect { result ->
-                when (result) {
-                    is ParseResult.Batch -> {
-                        for (entry in result.entries) {
-                            when (entry.contentType) {
-                                ContentType.Live -> live.add(entry)
-                                ContentType.Movie -> movies.add(entry)
-                                ContentType.Show -> episodes.add(entry)
+            // Stream the playlist body line-by-line (perf review #10).
+            // Previously `response.body.string()` materialised the full
+            // 20-50 MB playlist as a single UTF-8 String on the heap
+            // before the parser even started — combined with the three
+            // mutableListOf buffers below, first-launch sync could
+            // transiently consume 60-100 MB of heap and trigger the
+            // Fire Stick low-memory killer.
+            //
+            // The whole HTTP → parse pipeline runs inside the `use { }`
+            // block so the response is closed the moment we exit, even
+            // on cancellation or mid-parse throw.
+            withContext(Dispatchers.IO) {
+                http.newCall(Request.Builder().url(playlistUrl).build())
+                    .execute()
+                    .use { response ->
+                        if (!response.isSuccessful) {
+                            error("HTTP ${response.code} fetching $playlistUrl")
+                        }
+                        val body = response.body ?: error("Empty playlist body")
+                        body.charStream().buffered().useLines { lines ->
+                            parser.parseLines(lines).collect { result ->
+                                when (result) {
+                                    is ParseResult.Batch -> {
+                                        for (entry in result.entries) {
+                                            when (entry.contentType) {
+                                                ContentType.Live -> live.add(entry)
+                                                ContentType.Movie -> movies.add(entry)
+                                                ContentType.Show -> episodes.add(entry)
+                                            }
+                                        }
+                                        progressTracker.syncAdvance(result.entries.size)
+                                    }
+                                    is ParseResult.Progress -> {
+                                        _progress.value = Progress.Parsing(result.parsed, result.skipped)
+                                    }
+                                    is ParseResult.Complete -> {
+                                        progressTracker.syncComplete(result.totalParsed)
+                                    }
+                                }
                             }
                         }
-                        progressTracker.syncAdvance(result.entries.size)
                     }
-                    is ParseResult.Progress -> {
-                        _progress.value = Progress.Parsing(result.parsed, result.skipped)
-                    }
-                    is ParseResult.Complete -> {
-                        progressTracker.syncComplete(result.totalParsed)
-                    }
-                }
             }
 
             _progress.value = Progress.PostProcessing

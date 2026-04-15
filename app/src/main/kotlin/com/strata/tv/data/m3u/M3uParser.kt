@@ -35,6 +35,21 @@ class M3uParser(private val batchSize: Int = 500) {
     /**
      * Emit batches of parsed entries from [content].
      *
+     * Convenience overload for callers that already have the full
+     * playlist in memory (tests, local files).  Prefer the
+     * [parseLines] overload for network sources so a 50 MB playlist
+     * isn't materialised as a single String on the heap.
+     */
+    fun parse(content: String): Flow<ParseResult> =
+        parseLines(content.lineSequence())
+
+    /**
+     * Streaming-friendly overload — accepts any [Sequence] of lines
+     * (e.g. `BufferedReader.lineSequence()`).  Used by SyncService to
+     * stream the OkHttp response body without loading the whole
+     * playlist into a single String first (perf review #10 — first-
+     * sync OOM on Fire Stick).
+     *
      * Stages:
      * - [ParseResult.Batch] each time we accumulate [batchSize] entries.
      * - [ParseResult.Progress] after each batch with a running tally.
@@ -45,8 +60,8 @@ class M3uParser(private val batchSize: Int = 500) {
      * normally.  This matches v1: a broken record in the middle of a
      * 60 000-line playlist shouldn't kill the whole import.
      */
-    fun parse(content: String): Flow<ParseResult> = flow {
-        val lines = content.lineSequence().iterator()
+    fun parseLines(source: Sequence<String>): Flow<ParseResult> = flow {
+        val lines = source.iterator()
         val batch = mutableListOf<M3uEntry>()
         var totalParsed = 0
         var totalSkipped = 0

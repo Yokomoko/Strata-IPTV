@@ -157,6 +157,9 @@ class HomeViewModel @Inject constructor(
 
             // Only do an immediate sync if the DB is empty (first run)
             // — periodic WorkManager handles the rest.
+            // TODO: consider restoring a >24h staleness check as a safety
+            // net since WorkManager may not fire for days on Fire Stick
+            // under Doze/battery optimization (flagged in pr-review-report.md).
             val movieCount = movieDao.watchVisibleCount().first()
             if (movieCount == 0) {
                 runCatching { syncService.syncFromUrl(AppConfig.PLAYLIST_URL, sourceId) }

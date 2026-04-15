@@ -134,6 +134,12 @@ class PlayerViewModel @Inject constructor(
 
             _uiState.update { it.copy(isBuffering = buffering) }
 
+            // Clear error overlay when the stream successfully recovers.
+            if (playbackState == Player.STATE_READY && _uiState.value.errorMessage != null) {
+                retryCount = 0
+                _uiState.update { it.copy(errorMessage = null) }
+            }
+
             // Resume seek: apply once when the player first reaches READY.
             if (playbackState == Player.STATE_READY && !resumeApplied) {
                 resumeApplied = true
@@ -176,6 +182,7 @@ class PlayerViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(errorMessage = "Retrying... (attempt $retryCount/$maxRetries)")
                 }
+                retryJob?.cancel()  // cancel any pending retry to prevent stacking
                 retryJob = viewModelScope.launch {
                     delay(delayMs)
                     player.prepare()

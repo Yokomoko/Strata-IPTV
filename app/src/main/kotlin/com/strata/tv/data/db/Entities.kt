@@ -65,7 +65,13 @@ data class ContentItemEntity(
 // ---------------------------------------------------------------------------
 @Entity(
     tableName = "channels",
-    indices = [Index(value = ["content_id"], unique = true)],
+    indices = [
+        Index(value = ["content_id"], unique = true),
+        // v4: fav-mode zapping filters `WHERE is_favourite = 1` on every
+        // D-pad Up/Down.  With thousands of channels and few favourites,
+        // a full table scan is wasteful — partial-covering index is cheap.
+        Index(value = ["is_favourite"]),
+    ],
 )
 data class ChannelEntity(
     @PrimaryKey(autoGenerate = true)
@@ -89,6 +95,11 @@ data class ChannelEntity(
         Index(value = ["provider", "hidden"]),
         // Year DESC scan for "newest first" listing.
         Index(value = ["year"]),
+        // v4: covers the very hot `WHERE hidden = 0 ORDER BY year DESC`
+        // pattern used across Home (recent movies, hero candidates, provider
+        // rails) and Movies screen.  Composite index satisfies the filter
+        // and sort in one pass instead of filtering-then-sorting.
+        Index(value = ["hidden", "year"]),
     ],
 )
 data class MovieEntity(

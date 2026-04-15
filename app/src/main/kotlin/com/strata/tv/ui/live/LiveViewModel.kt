@@ -22,7 +22,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -124,10 +126,21 @@ class LiveViewModel @Inject constructor(
     )
 
     init {
-        // 1. Show channels immediately (no EPG data yet) so the user
-        //    doesn't stare at "No channels" while the EPG fetches.
+        // 1. React to channel list changes from Room.  Room Flows emit
+        //    their current value on subscription so this both fills the
+        //    initial guide AND handles post-sync refreshes.
+        //
+        //    distinctUntilChanged keyed on the contentId set so that
+        //    single-row writes (markWatched, setFavourite) don't cause
+        //    a full guide rebuild — Phase-2 now/next refresh handles
+        //    those cases on its own timer.
         viewModelScope.launch(Dispatchers.IO) {
-            refreshGuide()
+            channelDao.watchAll()
+                .map { channels -> channels.map { it.contentId }.toSet() }
+                .distinctUntilChanged()
+                .collect {
+                    refreshGuide()
+                }
         }
 
         // 2. EPG fetch in parallel — when done, refresh to overlay
@@ -144,14 +157,7 @@ class LiveViewModel @Inject constructor(
             refreshGuide()
         }
 
-        // 3. React to channel list changes from Room (e.g. after a sync).
-        viewModelScope.launch(Dispatchers.IO) {
-            channelDao.watchAll().collect {
-                refreshGuide()
-            }
-        }
-
-        // 4. Periodic EPG now/next refresh (#18) — re-queries programme
+        // 3. Periodic EPG now/next refresh (#18) — re-queries programme
         //    data every 5 minutes so the guide stays current without
         //    needing a full channel list rebuild.
         startPeriodicEpgRefresh()

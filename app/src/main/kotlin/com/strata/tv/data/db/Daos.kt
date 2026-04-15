@@ -515,6 +515,25 @@ interface EpisodeDao {
         """,
     )
     suspend fun updateName(series: String, season: Int, episode: Int, title: String)
+
+    /**
+     * Look up the next episode after (season, episode) within the same series.
+     * Tries the next episode in the same season first, then the first episode
+     * of the next season.
+     */
+    @Query(
+        """
+        SELECT * FROM episodes
+        WHERE (series_title = :seriesTitle OR LOWER(series_title) = LOWER(:seriesTitle))
+          AND (
+            (season_number = :season AND episode_number > :episode)
+            OR season_number > :season
+          )
+        ORDER BY season_number ASC, episode_number ASC
+        LIMIT 1
+        """,
+    )
+    suspend fun nextEpisode(seriesTitle: String, season: Int, episode: Int): EpisodeEntity?
 }
 
 // ---------------------------------------------------------------------------

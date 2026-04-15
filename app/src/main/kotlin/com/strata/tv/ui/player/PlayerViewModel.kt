@@ -1,19 +1,27 @@
 package com.strata.tv.ui.player
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import com.strata.tv.data.db.ChannelDao
 import com.strata.tv.data.db.ContentDao
 import com.strata.tv.data.db.ContinueWatchingDao
 import com.strata.tv.data.db.ContinueWatchingEntity
+import com.strata.tv.data.db.EpisodeDao
+import com.strata.tv.data.db.EpisodeEntity
 import com.strata.tv.data.db.WatchHistoryDao
 import com.strata.tv.data.db.WatchHistoryEntity
 import com.strata.tv.domain.ChannelDeduplicator
+import com.strata.tv.ui.nav.ChannelPlayInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -56,6 +64,7 @@ class PlayerViewModel @Inject constructor(
     private val cwDao: ContinueWatchingDao,
     private val historyDao: WatchHistoryDao,
     private val channelDao: ChannelDao,
+    private val episodeDao: EpisodeDao,
     private val contentDao: ContentDao,
 ) : AndroidViewModel(application) {
 
@@ -81,6 +90,26 @@ class PlayerViewModel @Inject constructor(
     private var resumePositionMs: Long = 0L
     private var contentType: String = ""
     private var artworkUrl: String = ""
+
+    // ── Series context for next-episode autoplay ────────────────────
+    private var seriesTitle: String? = null
+    private var seasonNumber: Int? = null
+    private var episodeNumber: Int? = null
+    private var countdownJob: Job? = null
+
+    // ── Channel switching (live) ────────────────────────────────────
+    private var channelList: List<ChannelPlayInfo> = emptyList()
+    private var currentChannelIndex: Int = 0
+    private var overlayHideJob: Job? = null
+
+    // ── Error retry ─────────────────────────────────────────────────
+    private var retryCount = 0
+    private var retryJob: Job? = null
+    private val maxRetries = 5
+
+    // ── Subtitle tracks ─────────────────────────────────────────────
+    private val _subtitleTracks = MutableStateFlow<List<SubtitleTrack>>(emptyList())
+    val subtitleTracks: StateFlow<List<SubtitleTrack>> = _subtitleTracks.asStateFlow()
 
     // ── Fav mode state (#11) ─────────────────────────────────────────
 
@@ -121,6 +150,7 @@ class PlayerViewModel @Inject constructor(
 
             if (ended) {
                 saveFullContinueWatching()
+                maybeStartAutoplay()
             }
         }
 
@@ -139,9 +169,44 @@ class PlayerViewModel @Inject constructor(
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            _uiState.update {
-                it.copy(errorMessage = error.localizedMessage ?: "Playback error")
+            if (retryCount < maxRetries) {
+                retryCount++
+                val delayMs = (1000L * (1 shl (retryCount - 1).coerceAtMost(4)))
+                    .coerceAtMost(30_000L)
+                _uiState.update {
+                    it.copy(errorMessage = "Retrying... (attempt $retryCount/$maxRetries)")
+                }
+                retryJob = viewModelScope.launch {
+                    delay(delayMs)
+                    player.prepare()
+                }
+            } else {
+                _uiState.update {
+                    it.copy(errorMessage = error.localizedMessage ?: "Stream unavailable after $maxRetries retries")
+                }
             }
+        }
+
+        override fun onTracksChanged(tracks: Tracks) {
+            // Update available subtitle tracks when the stream's tracks change.
+            val subs = mutableListOf<SubtitleTrack>()
+            for (group in tracks.groups) {
+                if (group.type != C.TRACK_TYPE_TEXT) continue
+                for (i in 0 until group.length) {
+                    val format = group.getTrackFormat(i)
+                    val label = format.label
+                        ?: format.language?.uppercase()
+                        ?: "Track ${subs.size + 1}"
+                    subs.add(SubtitleTrack(
+                        groupIndex = tracks.groups.indexOf(group),
+                        trackIndex = i,
+                        label = label,
+                        isSelected = group.isTrackSelected(i),
+                    ))
+                }
+            }
+            _subtitleTracks.value = subs
+            _uiState.update { it.copy(subtitlesEnabled = subs.any { t -> t.isSelected }) }
         }
     }
 
@@ -164,6 +229,9 @@ class PlayerViewModel @Inject constructor(
         resumePositionMs: Long,
         contentType: String,
         artworkUrl: String,
+        seriesTitle: String? = null,
+        seasonNumber: Int? = null,
+        episodeNumber: Int? = null,
     ) {
         // No-op if the caller is re-asserting the same stream we're
         // already set up for (e.g. a recomposition that doesn't change
@@ -178,10 +246,17 @@ class PlayerViewModel @Inject constructor(
         this.resumePositionMs = resumePositionMs
         this.contentType = contentType
         this.artworkUrl = artworkUrl
+        this.seriesTitle = seriesTitle
+        this.seasonNumber = seasonNumber
+        this.episodeNumber = episodeNumber
 
-        // Reset per-stream state so the resume-seek fires once for the
-        // new URL and buffering spinner shows until STATE_READY.
+        // Cancel any pending autoplay from the previous episode.
+        cancelAutoplay()
+
+        // Reset per-stream state.
         resumeApplied = false
+        retryCount = 0
+        retryJob?.cancel()
         _uiState.update { it.copy(isBuffering = true, errorMessage = null) }
 
         if (firstTime) {
@@ -209,6 +284,175 @@ class PlayerViewModel @Inject constructor(
         val duration = player.duration.coerceAtLeast(0)
         val target = (current + deltaMs).coerceIn(0, duration)
         player.seekTo(target)
+    }
+
+    // ── Error retry API ─────────────────────────────────────────────
+
+    /** Manual retry — resets the count and immediately re-prepares. */
+    fun retryNow() {
+        retryJob?.cancel()
+        retryCount = 0
+        _uiState.update { it.copy(errorMessage = null, isBuffering = true) }
+        player.prepare()
+    }
+
+    // ── Subtitle API ────────────────────────────────────────────────
+
+    /** Select a specific subtitle track by its group and track index. */
+    fun selectSubtitleTrack(groupIndex: Int, trackIndex: Int) {
+        val group = player.currentTracks.groups.getOrNull(groupIndex) ?: return
+        val override = TrackSelectionOverride(group.mediaTrackGroup, trackIndex)
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setOverrideForType(override)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .build()
+        _uiState.update { it.copy(subtitlesEnabled = true) }
+    }
+
+    /** Disable all subtitle tracks. */
+    fun disableSubtitles() {
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            .build()
+        _uiState.update { it.copy(subtitlesEnabled = false) }
+    }
+
+    /**
+     * Set the live channel list for D-pad channel switching.
+     * Called once from the composable after it receives the player args.
+     */
+    fun setChannelList(channels: List<ChannelPlayInfo>, index: Int) {
+        channelList = channels
+        currentChannelIndex = index.coerceIn(0, (channels.size - 1).coerceAtLeast(0))
+        _uiState.update { it.copy(currentChannelIndex = currentChannelIndex) }
+    }
+
+    /**
+     * Switch to the next (+1) or previous (-1) channel in the list.
+     * Wraps around at both ends.  Returns the new [ChannelPlayInfo]
+     * so the screen can update its displayed title, or null if the
+     * list is empty / not in live mode.
+     */
+    fun switchChannel(delta: Int): ChannelPlayInfo? {
+        if (channelList.isEmpty() || !isLive) return null
+        val newIndex = (currentChannelIndex + delta).mod(channelList.size)
+        currentChannelIndex = newIndex
+        _uiState.update { it.copy(currentChannelIndex = newIndex) }
+        val channel = channelList[newIndex]
+
+        // Re-initialize the player with the new stream.
+        initialize(
+            streamUrl = channel.streamUrl,
+            title = channel.displayName,
+            isLive = true,
+            resumePositionMs = 0L,
+            contentType = "live",
+            artworkUrl = channel.logoUrl,
+        )
+
+        // Show channel overlay.
+        showChannelOverlay()
+
+        return channel
+    }
+
+    /** Current channel info for the overlay, or null if not in live/channel-list mode. */
+    fun currentChannel(): ChannelPlayInfo? {
+        if (channelList.isEmpty()) return null
+        return channelList.getOrNull(currentChannelIndex)
+    }
+
+    // ── Channel overlay visibility ──────────────────────────────────
+
+    fun showChannelOverlay() {
+        _uiState.update { it.copy(channelOverlayVisible = true) }
+        overlayHideJob?.cancel()
+        overlayHideJob = viewModelScope.launch {
+            delay(4_000)
+            _uiState.update { it.copy(channelOverlayVisible = false) }
+        }
+    }
+
+    fun hideChannelOverlay() {
+        overlayHideJob?.cancel()
+        _uiState.update { it.copy(channelOverlayVisible = false) }
+    }
+
+    // ── Next episode autoplay ──────────────────────────────────────
+
+    /**
+     * When a show episode ends and we know the series context, look up
+     * the next episode and start a 10-second countdown.  At zero the
+     * player auto-transitions to the next stream.
+     */
+    private fun maybeStartAutoplay() {
+        val series = seriesTitle ?: return
+        val season = seasonNumber ?: return
+        val episode = episodeNumber ?: return
+        if (contentType != "show" || isLive) return
+
+        viewModelScope.launch {
+            val next = episodeDao.nextEpisode(series, season, episode)
+            if (next == null) {
+                Log.d("PlayerVM", "No next episode for $series S${season}E${episode}")
+                return@launch
+            }
+
+            val nextUrl = next.streamUrl.ifBlank {
+                contentDao.byContentId(next.contentId)?.streamUrl ?: ""
+            }
+            if (nextUrl.isBlank()) return@launch
+
+            _uiState.update {
+                it.copy(
+                    nextEpisode = NextEpisodeInfo(
+                        seriesTitle = series,
+                        seasonNumber = next.seasonNumber,
+                        episodeNumber = next.episodeNumber,
+                        episodeTitle = next.episodeTitle,
+                        countdown = 10,
+                    ),
+                )
+            }
+
+            countdownJob = launch {
+                for (tick in 9 downTo 0) {
+                    delay(1_000)
+                    if (!isActive) return@launch
+                    _uiState.update { state ->
+                        state.copy(
+                            nextEpisode = state.nextEpisode?.copy(countdown = tick),
+                        )
+                    }
+                }
+
+                // Countdown reached zero -- play the next episode.
+                _uiState.update { it.copy(nextEpisode = null) }
+                initialize(
+                    streamUrl = nextUrl,
+                    title = "$series S${next.seasonNumber}E${next.episodeNumber}",
+                    isLive = false,
+                    resumePositionMs = 0L,
+                    contentType = "show",
+                    artworkUrl = artworkUrl,
+                    seriesTitle = series,
+                    seasonNumber = next.seasonNumber,
+                    episodeNumber = next.episodeNumber,
+                )
+            }
+        }
+    }
+
+    /**
+     * Cancel the autoplay countdown (e.g. when the user presses Back
+     * during the "Next Episode" overlay).
+     */
+    fun cancelAutoplay() {
+        countdownJob?.cancel()
+        countdownJob = null
+        _uiState.update { it.copy(nextEpisode = null) }
     }
 
     /**
@@ -417,6 +661,8 @@ class PlayerViewModel @Inject constructor(
     override fun onCleared() {
         saveJob?.cancel()
         hideJob?.cancel()
+        overlayHideJob?.cancel()
+        countdownJob?.cancel()
         player.removeListener(playerListener)
         player.release()
         super.onCleared()
@@ -432,10 +678,40 @@ data class PlayerUiState(
     val isBuffering: Boolean = true,
     val controlsVisible: Boolean = true,
     val errorMessage: String? = null,
+    val channelOverlayVisible: Boolean = false,
+    val subtitlesEnabled: Boolean = false,
+    /**
+     * Current position in [PlayerViewModel.channelList] — drives the
+     * "Channel X of Y" counter in [ChannelOverlay].  Exposed through
+     * UI state (not a composable param) so the overlay updates after
+     * D-pad Up/Down switches channels.
+     */
+    val currentChannelIndex: Int = 0,
+    /** Non-null while the next-episode countdown is active. */
+    val nextEpisode: NextEpisodeInfo? = null,
     /** True when favourite-channel zapping is active (#11). */
     val favModeEnabled: Boolean = false,
     /** Display name of the current channel (updated on fav zap). */
     val channelDisplayName: String? = null,
+)
+
+/** A single subtitle/CC track available in the current stream. */
+data class SubtitleTrack(
+    val groupIndex: Int,
+    val trackIndex: Int,
+    val label: String,
+    val isSelected: Boolean,
+)
+
+/**
+ * Info shown in the "Next Episode" autoplay overlay.
+ */
+data class NextEpisodeInfo(
+    val seriesTitle: String,
+    val seasonNumber: Int,
+    val episodeNumber: Int,
+    val episodeTitle: String,
+    val countdown: Int,
 )
 
 /**

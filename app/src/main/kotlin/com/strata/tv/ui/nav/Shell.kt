@@ -89,6 +89,11 @@ fun Shell(
             resumePositionMs = playerArgs.resumePositionMs,
             contentType = playerArgs.contentType,
             artworkUrl = playerArgs.artworkUrl,
+            channelList = playerArgs.channelList,
+            currentChannelIndex = playerArgs.currentIndex,
+            seriesTitle = playerArgs.seriesTitle,
+            seasonNumber = playerArgs.seasonNumber,
+            episodeNumber = playerArgs.episodeNumber,
             onExit = { nav.closePlayer() },
         )
         return // Player is full-screen, nothing else renders.

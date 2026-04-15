@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.view.KeyEvent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -36,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,14 +46,19 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.foundation.lazy.list.TvLazyColumn
 import androidx.tv.foundation.lazy.list.TvLazyRow
 import androidx.tv.foundation.lazy.list.items
+import androidx.tv.foundation.lazy.list.itemsIndexed
+import androidx.tv.foundation.lazy.list.rememberTvLazyListState
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.strata.tv.ui.nav.AppNavState
+import com.strata.tv.ui.nav.ChannelPlayInfo
 import com.strata.tv.ui.nav.PlayerArgs
 import com.strata.tv.ui.theme.StrataColors
+import com.strata.tv.ui.widgets.CardContextMenu
+import com.strata.tv.ui.widgets.ContextMenuAction
 import java.time.Duration
 import java.time.Instant
 
@@ -73,12 +80,49 @@ fun LiveScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val epgLoading by viewModel.epgLoading.collectAsState()
+    val lastWatchedContentId by viewModel.lastWatchedContentId.collectAsState()
     var showGrid by remember { mutableStateOf(false) }
 
     // Refresh now/next EPG data whenever the Live tab is (re)composed (#18).
     LaunchedEffect(Unit) {
         viewModel.refreshOnResume()
     }
+
+    // Context menu state
+    var contextMenuChannel by remember { mutableStateOf<ChannelWithGuide?>(null) }
+
+    // List state for auto-scrolling to last-watched channel
+    val listState = rememberTvLazyListState()
+    var hasAutoScrolled by remember { mutableStateOf(false) }
+
+    // Auto-scroll to the last-watched channel on first load
+    LaunchedEffect(state.channels, lastWatchedContentId) {
+        if (!hasAutoScrolled && state.channels.isNotEmpty() && lastWatchedContentId != null) {
+            val index = state.channels.indexOfFirst {
+                it.channelEntity.contentId == lastWatchedContentId
+            }
+            if (index >= 0) {
+                listState.scrollToItem(index)
+                hasAutoScrolled = true
+            }
+        }
+    }
+
+    // Context menu popup
+    CardContextMenu(
+        visible = contextMenuChannel != null,
+        actions = contextMenuChannel?.let { ch ->
+            listOf(
+                ContextMenuAction(
+                    label = if (ch.isFavourite) "Remove from Favourites" else "Add to Favourites",
+                    onClick = {
+                        viewModel.toggleFavourite(ch.channelEntity.contentId, ch.isFavourite)
+                    },
+                ),
+            )
+        } ?: emptyList(),
+        onDismiss = { contextMenuChannel = null },
+    )
 
     Column(
         modifier = modifier
@@ -112,10 +156,28 @@ fun LiveScreen(
             GuideGridScreen(
                 channels = state.channels,
                 programmeDao = viewModel.programmeDao,
-                onPlayChannel = onPlayChannel,
+                onPlayChannel = { channel ->
+                    viewModel.markChannelWatched(channel.channelEntity.contentId)
+                    onPlayChannel(channel)
+                },
             )
         } else {
+            // Build channel play info list for D-pad switching.
+            val channelPlayList = remember(state.channels) {
+                state.channels.map { ch ->
+                    ChannelPlayInfo(
+                        contentId = ch.channelEntity.contentId,
+                        streamUrl = ch.streamUrl,
+                        displayName = ch.displayName,
+                        logoUrl = ch.logoUrl,
+                        nowTitle = ch.nowTitle,
+                        nextTitle = ch.nextTitle,
+                    )
+                }
+            }
+
             TvLazyColumn(
+                state = listState,
                 contentPadding = PaddingValues(
                     start = 40.dp,
                     end = 24.dp,
@@ -123,13 +185,14 @@ fun LiveScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                items(
+                itemsIndexed(
                     items = state.channels,
-                    key = { it.channelEntity.contentId },
-                ) { channel ->
+                    key = { _, ch -> ch.channelEntity.contentId },
+                ) { channelIndex, channel ->
                     ChannelRow(
                         channel = channel,
                         onPlay = {
+                            viewModel.markChannelWatched(channel.channelEntity.contentId)
                             onNavigate?.openPlayer(
                                 PlayerArgs(
                                     streamUrl = channel.streamUrl,
@@ -137,9 +200,13 @@ fun LiveScreen(
                                     isLive = true,
                                     contentType = "live",
                                     artworkUrl = channel.logoUrl,
+                                    contentId = channel.channelEntity.contentId,
+                                    channelList = channelPlayList,
+                                    currentIndex = channelIndex,
                                 ),
                             )
                         },
+                        onMenuPressed = { contextMenuChannel = channel },
                     )
                 }
             }
@@ -317,6 +384,7 @@ private fun CategoryChips(
 private fun ChannelRow(
     channel: ChannelWithGuide,
     onPlay: () -> Unit,
+    onMenuPressed: () -> Unit = {},
 ) {
     Surface(
         onClick = onPlay,
@@ -327,7 +395,17 @@ private fun ChannelRow(
         ),
         modifier = Modifier
             .fillMaxWidth()
-            .height(76.dp),
+            .height(76.dp)
+            .onPreviewKeyEvent { event ->
+                if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
+                    event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MENU
+                ) {
+                    onMenuPressed()
+                    true
+                } else {
+                    false
+                }
+            },
     ) {
         Row(
             modifier = Modifier
@@ -335,6 +413,16 @@ private fun ChannelRow(
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Favourite indicator
+            if (channel.isFavourite) {
+                Text(
+                    text = "\u2665", // filled heart
+                    color = StrataColors.StatusLive,
+                    fontSize = 14.sp,
+                )
+                Spacer(Modifier.width(6.dp))
+            }
+
             ChannelLogo(
                 logoUrl = channel.logoUrl,
                 displayName = channel.displayName,

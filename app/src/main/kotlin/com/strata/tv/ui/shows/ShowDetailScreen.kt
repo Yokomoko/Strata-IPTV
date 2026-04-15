@@ -274,6 +274,9 @@ private fun ShowDetailContent(
                                             resumePositionMs = firstEp.resumePositionMs,
                                             contentType = "show",
                                             artworkUrl = series.posterUrl,
+                                            seriesTitle = series.seriesTitle,
+                                            seasonNumber = firstEp.seasonNumber,
+                                            episodeNumber = firstEp.episodeNumber,
                                         ),
                                     )
                                 }
@@ -426,6 +429,9 @@ private fun EpisodeRow(
                             resumePositionMs = episode.resumePositionMs,
                             contentType = "show",
                             artworkUrl = posterUrl,
+                            seriesTitle = seriesTitle,
+                            seasonNumber = episode.seasonNumber,
+                            episodeNumber = episode.episodeNumber,
                         ),
                     )
                 }

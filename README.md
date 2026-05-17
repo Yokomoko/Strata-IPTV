@@ -41,8 +41,6 @@ If your provider is MyBunny.TV, just pick it from the wizard and enter your user
 2. Sideload it onto your Fire Stick or Android TV. The easiest way on Fire Stick is to install the Downloader app from the Amazon Appstore, then point it at the release asset URL.
 3. Launch Strata and follow the wizard.
 
-**Fire Stick users:** each release also includes `strata-tv-firetv-banner.apk`, a tiny companion app that gives Strata a proper wide banner in your Fire TV apps row (Amazon's launcher squares off sideloaded apps' banners by default). Install both APKs, launch the banner one once to register it, and the home-row tile shows the full STRATA wordmark.
-
 ### A note for Fire Stick users about the apps tile
 
 Amazon's stock Fire TV launcher squares off sideloaded apps' banners, so Strata's wide STRATA wordmark gets cropped down to a centred square in the home row. There's nothing the app can do about this from inside the APK. Two ways round it:

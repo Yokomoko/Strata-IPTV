@@ -88,9 +88,5 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: Strata TV ${{ steps.version.outputs.version }}
           generate_release_notes: true
-          # Main APK + Fire TV banner proxy (so users who want the
-          # proper wide banner in the apps row can install both).
-          files: |
-            ${{ steps.rename.outputs.apk_path }}
-            release-assets/strata-tv-firetv-banner.apk
+          files: ${{ steps.rename.outputs.apk_path }}
           fail_on_unmatched_files: true

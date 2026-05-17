@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Shared brand tokens used by XML themes (launch window, etc.) and
+  the launcher's adaptive icon background.
+
+  The Compose layer references [StrataColors.kt]; values here only
+  need to cover places that can't see Kotlin (manifests, themes,
+  splash screen, adaptive icon XML).
+-->
+<resources>
+    <!-- Strata brand tokens (matched to the icon pack gradient) -->
+    <color name="strata_bg_top">#08091A</color>
+    <color name="strata_bg_mid">#150C2E</color>
+    <color name="strata_bg_bottom">#23093A</color>
+    <color name="strata_glow">#5E2D9B</color>
+    <color name="strata_accent_cyan">#00E5FF</color>
+    <color name="strata_accent_blue">#3B82F6</color>
+    <color name="strata_accent_purple">#A855F7</color>
+    <color name="strata_accent_pink">#EC4899</color>
+    <color name="strata_accent_magenta">#FF2D92</color>
+
+    <!-- Required by adaptive-icon background fallback -->
+    <color name="ic_launcher_background">#150C2E</color>
+
+    <!-- Legacy aliases referenced by themes.xml -->
+    <color name="strata_surface_void">#08091A</color>
+    <color name="strata_accent_primary">#A855F7</color>
+    <color name="strata_accent_secondary">#00E5FF</color>
+</resources>

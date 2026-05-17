@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Debug-only manifest overlay.  Permits cleartext HTTP so
+      MockWebServer-backed instrumented tests can run, and tags
+      ourselves debuggable so adb shell run-as works.
+
+      Release builds use src/main/AndroidManifest.xml which keeps the
+      Android default (HTTPS-only) in force.
+    -->
+    <application
+        android:networkSecurityConfig="@xml/network_security_config_debug"
+        tools:ignore="UnusedAttribute" />
+</manifest>

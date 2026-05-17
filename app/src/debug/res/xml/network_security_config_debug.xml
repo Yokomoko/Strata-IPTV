@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only network security config.  Allows cleartext HTTP so
+  instrumented tests can talk to MockWebServer on localhost, while
+  keeping the production release build's HTTPS-default in place.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

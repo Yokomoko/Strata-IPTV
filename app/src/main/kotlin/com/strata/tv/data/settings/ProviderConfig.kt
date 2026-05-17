@@ -1,0 +1,94 @@
+package com.strata.tv.data.settings
+
+/**
+ * The IPTV provider the user has configured.  Either a built-in
+ * Xtream Codes provider (MyBunny.TV, GTV, etc.) where we have the
+ * host URL baked in and the user supplies credentials, or a fully
+ * custom entry where the user supplies everything.
+ *
+ * The settings layer stores this; [ProviderConfig.toM3uUrl] /
+ * [ProviderConfig.toPlayerApiUrl] resolve the runtime URLs.
+ */
+data class ProviderConfig(
+    /** Built-in or "custom".  Empty/null means "not configured yet". */
+    val providerId: String = "",
+    /** Xtream host (no trailing slash) e.g. "http://mybunny.tv". */
+    val host: String = "",
+    val username: String = "",
+    val password: String = "",
+    /**
+     * Used when [providerId] = "custom_m3u": a raw M3U URL with
+     * credentials baked in.  [host]/[username]/[password] are unused
+     * in this case.
+     */
+    val customM3uUrl: String = "",
+) {
+    val isConfigured: Boolean
+        get() = when (providerId) {
+            "" -> false
+            "custom_m3u" -> customM3uUrl.isNotBlank()
+            else -> host.isNotBlank() && username.isNotBlank() && password.isNotBlank()
+        }
+
+    /** Resolve the M3U playlist URL for [SyncService.syncFromUrl]. */
+    fun toM3uUrl(): String = when (providerId) {
+        "custom_m3u" -> customM3uUrl
+        else -> {
+            val base = host.trimEnd('/')
+            "$base/get.php?username=$username&password=$password&type=m3u_plus&output=ts"
+        }
+    }
+
+    /** Resolve the Xtream `player_api.php` URL for account info / subscription. */
+    fun toPlayerApiUrl(action: String? = null): String? {
+        if (providerId == "custom_m3u") return null
+        val base = host.trimEnd('/')
+        val core = "$base/player_api.php?username=$username&password=$password"
+        return if (action != null) "$core&action=$action" else core
+    }
+}
+
+/**
+ * Catalogue of built-in providers shown in the first-run wizard
+ * and Settings provider picker.  Hosts are public knowledge —
+ * credentials are entered by the user at runtime, never embedded.
+ */
+object BuiltInProviders {
+    data class Entry(
+        val id: String,
+        val displayName: String,
+        val host: String,
+        val description: String,
+    )
+
+    val ALL: List<Entry> = listOf(
+        Entry(
+            id = "mybunny_tv",
+            displayName = "MyBunny.TV",
+            host = "https://mybunny.tv",
+            description = "Xtream Codes. Enter your MyBunny.TV username and password.",
+        ),
+        Entry(
+            id = "skyglass",
+            displayName = "SkyGlass",
+            host = "http://skyglass.vip:8080",
+            description = "Xtream Codes. The same username and password you use " +
+                "in the SkyGlass wrapper app.",
+        ),
+        Entry(
+            id = "custom_xtream",
+            displayName = "Custom Xtream",
+            host = "",
+            description = "For B1G, GTV, Ultimate, and other Xtream providers. " +
+                "Enter host URL, username and password.",
+        ),
+        Entry(
+            id = "custom_m3u",
+            displayName = "Custom M3U URL",
+            host = "",
+            description = "Paste a raw M3U URL that already has credentials baked in.",
+        ),
+    )
+
+    fun byId(id: String): Entry? = ALL.firstOrNull { it.id == id }
+}

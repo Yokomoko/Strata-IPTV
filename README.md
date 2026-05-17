@@ -43,7 +43,10 @@ If your provider is MyBunny.TV, just pick it from the wizard and enter your user
 
 ### A note for Fire Stick users about the apps tile
 
-Amazon's stock Fire TV launcher squares off sideloaded apps' banners, so Strata's wide STRATA wordmark gets cropped down to a centred square in the home row. There's nothing the app can do about this from inside the APK. If you want sideloaded apps to look like the first-party ones (full-width banners), install [ATV Launcher](https://atvlauncher.trekgonewild.de/) and set it as your default home screen. It honours the standard Android TV banner convention so Strata, Plex, Kodi and similar apps render properly.
+Amazon's stock Fire TV launcher squares off sideloaded apps' banners, so Strata's wide STRATA wordmark gets cropped down to a centred square in the home row. There's nothing the app can do about this from inside the APK. Two ways round it:
+
+1. **Banner proxy via ATV Launcher** (no launcher replacement needed): use [ATV Launcher's banner generator](https://atvlauncher.trekgonewild.de/) to build a tiny proxy APK that carries the wide banner and forwards to Strata when launched. Install the proxy alongside Strata, launch it once, and Fire TV will use the proxy's banner for the home-row tile.
+2. **Replace the launcher entirely**: install ATV Launcher itself and set it as your default home. It honours the standard Android TV banner convention so every sideloaded app renders properly.
 
 ### Build from source
 

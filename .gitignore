@@ -27,3 +27,4 @@ hs_err_*.log
 .claude/
 .kotlin/
 replay_pid*.log
+gradle.zip

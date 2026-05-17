@@ -34,8 +34,28 @@ data class ProviderConfig(
     fun toM3uUrl(): String = when (providerId) {
         "custom_m3u" -> customM3uUrl
         else -> {
+            // Don't pin output=ts.  Some providers (MyBunny.TV is one)
+            // return an empty body when this parameter is set.  The
+            // standard playlist URL is just type=m3u_plus.
             val base = host.trimEnd('/')
-            "$base/get.php?username=$username&password=$password&type=m3u_plus&output=ts"
+            "$base/get.php?username=$username&password=$password&type=m3u_plus"
+        }
+    }
+
+    /**
+     * Resolve the XMLTV EPG URL for this provider.
+     *
+     * - **MyBunny.TV** publishes a public EPG at `/epg.xml`, no auth.
+     * - **Other Xtream Codes** providers typically host the EPG at the
+     *   standard `/xmltv.php` endpoint behind the user's credentials.
+     * - **Raw M3U** providers don't expose an EPG; returns null.
+     */
+    fun toEpgUrl(): String? = when (providerId) {
+        "custom_m3u" -> null
+        "mybunny_tv" -> "https://mybunny.tv/epg.xml"
+        else -> {
+            val base = host.trimEnd('/')
+            "$base/xmltv.php?username=$username&password=$password"
         }
     }
 

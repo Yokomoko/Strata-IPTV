@@ -11,9 +11,6 @@ package com.strata.tv
  * pipeline) so it never lands in git history.
  */
 object AppConfig {
-    /** XMLTV EPG feed. */
-    const val EPG_URL: String = "https://epg.iptv.cat/epg.xml"
-
     /** TMDB image base URL + the sizes we use for poster cards / backdrops. */
     const val TMDB_IMAGE_BASE: String = "https://image.tmdb.org/t/p"
     const val TMDB_POSTER_SIZE: String = "w500"

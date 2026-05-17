@@ -1,8 +1,8 @@
 package com.strata.tv.data.repo
 
 import android.util.Log
-import com.strata.tv.AppConfig
 import com.strata.tv.data.db.ProgrammeDao
+import com.strata.tv.data.settings.SettingsRepository
 import com.strata.tv.data.xmltv.XmltvParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -34,6 +34,7 @@ class EpgFetchService @Inject constructor(
     private val http: OkHttpClient,
     private val parser: XmltvParser,
     private val programmeDao: ProgrammeDao,
+    private val settingsRepo: SettingsRepository,
 ) {
 
     companion object {
@@ -59,13 +60,19 @@ class EpgFetchService @Inject constructor(
      * @return the number of programmes stored, or 0 if skipped.
      */
     suspend fun fetchIfNeeded(): Int {
+        val epgUrl = settingsRepo.current().provider.toEpgUrl()
+            ?: run {
+                Log.d(TAG, "Provider has no EPG URL; skipping fetch")
+                return 0
+            }
+
         val cutoff = Instant.now().plus(2, ChronoUnit.HOURS)
         if (programmeDao.hasAfter(cutoff)) {
             Log.d(TAG, "EPG data is fresh (has programmes after $cutoff), skipping fetch")
             return 0
         }
 
-        Log.d(TAG, "EPG data is stale, fetching from ${AppConfig.EPG_URL}")
+        Log.d(TAG, "EPG data is stale, fetching from $epgUrl")
 
         // Purge old programmes before fetching new ones — keeps the
         // table from growing unboundedly across refreshes.
@@ -74,13 +81,13 @@ class EpgFetchService @Inject constructor(
 
         return withContext(Dispatchers.IO) {
             val request = Request.Builder()
-                .url(AppConfig.EPG_URL)
+                .url(epgUrl)
                 .build()
 
             val response = http.newCall(request).execute()
             if (!response.isSuccessful) {
                 Log.e(TAG, "HTTP ${response.code} fetching EPG")
-                error("HTTP ${response.code} fetching ${AppConfig.EPG_URL}")
+                error("HTTP ${response.code} fetching $epgUrl")
             }
 
             val body = response.body ?: error("Empty EPG response body")

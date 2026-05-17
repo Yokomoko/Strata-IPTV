@@ -1,6 +1,5 @@
 package com.strata.tv.data.repo
 
-import com.strata.tv.AppConfig
 import com.strata.tv.data.db.SourceDao
 import com.strata.tv.data.db.SourceEntity
 import com.strata.tv.data.settings.SettingsRepository
@@ -30,18 +29,19 @@ class BootstrapRepository @Inject constructor(
     suspend fun ensureSource(): Int {
         val current = settings.current()
         val playlistUrl = if (current.provider.isConfigured) current.provider.toM3uUrl() else ""
+        val epgUrl = current.provider.toEpgUrl().orEmpty()
         val existing = sourceDao.all().firstOrNull()
         if (existing != null) {
-            // Keep the row id stable; refresh the URL if it has changed.
-            if (existing.playlistUrl != playlistUrl) {
-                sourceDao.insert(existing.copy(playlistUrl = playlistUrl))
+            // Keep the row id stable; refresh URLs if they've changed.
+            if (existing.playlistUrl != playlistUrl || existing.epgUrl != epgUrl) {
+                sourceDao.insert(existing.copy(playlistUrl = playlistUrl, epgUrl = epgUrl))
             }
             return existing.id
         }
         return sourceDao.insert(
             SourceEntity(
                 playlistUrl = playlistUrl,
-                epgUrl = AppConfig.EPG_URL,
+                epgUrl = epgUrl,
                 userAgent = "Strata TV",
             ),
         ).toInt()

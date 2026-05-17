@@ -231,7 +231,8 @@ fun SettingsScreen(
                 )
                 ListRow(
                     headline = "EPG source",
-                    supporting = AppConfig.EPG_URL,
+                    supporting = settings.provider.toEpgUrl()?.let { maskUrl(it) }
+                        ?: "Not available for this provider",
                 )
             }
         }
@@ -364,6 +365,15 @@ private fun ListRow(
             containerColor = StrataColors.SurfaceRaised,
             focusedContainerColor = StrataColors.SurfaceFloat,
             disabledContainerColor = StrataColors.SurfaceRaised,
+        ),
+        // Disable the default 1.05x focus zoom so the row's left edge
+        // doesn't get pushed past the parent's left padding into the
+        // sidebar area.  Focus is still signalled via the colour
+        // change above.
+        scale = ClickableSurfaceDefaults.scale(
+            scale = 1f,
+            focusedScale = 1f,
+            pressedScale = 1f,
         ),
         modifier = Modifier.fillMaxWidth(),
     ) {

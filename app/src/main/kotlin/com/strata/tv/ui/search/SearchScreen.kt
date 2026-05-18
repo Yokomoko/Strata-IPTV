@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import android.view.KeyEvent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -25,6 +26,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import androidx.compose.ui.platform.LocalContext
+import com.strata.tv.ui.widgets.CardContextMenu
+import com.strata.tv.ui.widgets.ContextMenuAction
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -76,6 +84,10 @@ fun SearchScreen(
 ) {
     val query by viewModel.query.collectAsState()
     val uiState by viewModel.results.collectAsState()
+    val watchlistIds by viewModel.watchlistIds.collectAsState()
+
+    // Long-press / Menu-button context menu, shared across all result rows.
+    var contextMenuActions by remember { mutableStateOf<List<ContextMenuAction>>(emptyList()) }
 
     // Keyboard is dismissed when the user navigates Down from the
     // search field into the results — NOT on result arrival, which
@@ -118,10 +130,22 @@ fun SearchScreen(
                 NoResultsState(query)
             }
             is SearchUiState.Results -> {
-                ResultsList(state, onNavigate)
+                ResultsList(
+                    state = state,
+                    onNavigate = onNavigate,
+                    watchlistIds = watchlistIds,
+                    viewModel = viewModel,
+                    onMenuShow = { contextMenuActions = it },
+                )
             }
         }
     }
+
+    CardContextMenu(
+        visible = contextMenuActions.isNotEmpty(),
+        actions = contextMenuActions,
+        onDismiss = { contextMenuActions = emptyList() },
+    )
 }
 
 // =====================================================================
@@ -287,7 +311,13 @@ private fun NoResultsState(query: String) {
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun ResultsList(state: SearchUiState.Results, onNavigate: AppNavState?) {
+private fun ResultsList(
+    state: SearchUiState.Results,
+    onNavigate: AppNavState?,
+    watchlistIds: Set<String>,
+    viewModel: SearchViewModel,
+    onMenuShow: (List<ContextMenuAction>) -> Unit,
+) {
     TvLazyColumn(
         contentPadding = PaddingValues(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -296,7 +326,7 @@ private fun ResultsList(state: SearchUiState.Results, onNavigate: AppNavState?) 
         if (state.movies.isNotEmpty()) {
             item { SectionHeader("Movies (${state.movies.size})") }
             items(
-                items = state.movies.take(30),
+                items = state.movies.take(MOVIE_CAP),
                 key = { "mv:${it.contentId}" },
             ) { result ->
                 ResultRow(
@@ -304,9 +334,12 @@ private fun ResultsList(state: SearchUiState.Results, onNavigate: AppNavState?) 
                     icon = Icons.Outlined.Movie,
                     iconColor = StrataColors.AccentPrimary,
                     typeLabel = "MOVIE",
+                    inWatchlist = result.contentId in watchlistIds,
                     onClick = {
                         onNavigate?.openMovieDetail(result.contentId)
                     },
+                    onMenuShow = onMenuShow,
+                    viewModel = viewModel,
                 )
             }
         }
@@ -315,7 +348,7 @@ private fun ResultsList(state: SearchUiState.Results, onNavigate: AppNavState?) 
         if (state.shows.isNotEmpty()) {
             item { SectionHeader("Shows (${state.shows.size})") }
             items(
-                items = state.shows.take(30),
+                items = state.shows.take(SHOW_CAP),
                 key = { "sh:${it.contentId}" },
             ) { result ->
                 ResultRow(
@@ -323,20 +356,26 @@ private fun ResultsList(state: SearchUiState.Results, onNavigate: AppNavState?) 
                     icon = Icons.Outlined.VideoLibrary,
                     iconColor = StrataColors.AccentSecondary,
                     typeLabel = "SHOW",
+                    // Shows are keyed by series title in the watchlist.
+                    inWatchlist = result.seriesTitle in watchlistIds,
                     onClick = {
                         if (result.seriesTitle.isNotBlank()) {
                             onNavigate?.openShowDetail(result.seriesTitle)
                         }
                     },
+                    onMenuShow = onMenuShow,
+                    viewModel = viewModel,
                 )
             }
         }
 
-        // Channels last, capped at 5 to avoid drowning out movie/show results.
+        // Channels last.  Bumped from 5 to 15 — issue #36 noted the
+        // previous cap was too aggressive for users searching for a
+        // channel that wasn't quite scoring top of the list.
         if (state.channels.isNotEmpty()) {
             item { SectionHeader("Channels (${state.channels.size})") }
             items(
-                items = state.channels.take(5),
+                items = state.channels.take(CHANNEL_CAP),
                 key = { "ch:${it.contentId}" },
             ) { result ->
                 ResultRow(
@@ -344,6 +383,7 @@ private fun ResultsList(state: SearchUiState.Results, onNavigate: AppNavState?) 
                     icon = Icons.Outlined.LiveTv,
                     iconColor = StrataColors.StatusLive,
                     typeLabel = "LIVE",
+                    inWatchlist = false, // channels don't go on the watchlist
                     onClick = {
                         onNavigate?.openPlayer(
                             PlayerArgs(
@@ -356,11 +396,21 @@ private fun ResultsList(state: SearchUiState.Results, onNavigate: AppNavState?) 
                             ),
                         )
                     },
+                    onMenuShow = onMenuShow,
+                    viewModel = viewModel,
                 )
             }
         }
     }
 }
+
+// Cap how many rows we render per section.  Bumped from the original
+// 30 / 30 / 5 because the dedup pass we added in [SearchViewModel]
+// collapses quality variants — what used to be 30 entries is now
+// closer to 20 unique titles, so we have headroom to surface more.
+private const val MOVIE_CAP = 60
+private const val SHOW_CAP = 60
+private const val CHANNEL_CAP = 15
 
 // =====================================================================
 // Section header
@@ -389,63 +439,115 @@ private fun ResultRow(
     icon: ImageVector,
     iconColor: Color,
     typeLabel: String,
+    inWatchlist: Boolean,
     onClick: () -> Unit,
+    onMenuShow: (List<ContextMenuAction>) -> Unit,
+    viewModel: SearchViewModel,
 ) {
     // Use the clean title; fall back to raw displayName only when title is blank.
     val displayText = result.title.ifBlank { result.displayName }
+    val context = LocalContext.current
 
-    ListItem(
-        selected = false,
-        onClick = onClick,
-        colors = ListItemDefaults.colors(
-            containerColor = StrataColors.SurfaceRaised,
-            contentColor = StrataColors.TextPrimary,
-            focusedContainerColor = StrataColors.SurfaceFloat,
-            focusedContentColor = StrataColors.TextPrimary,
-            selectedContainerColor = StrataColors.SurfaceFloat,
-            selectedContentColor = StrataColors.TextPrimary,
-        ),
-        headlineContent = {
-            Text(
-                text = displayText,
-                color = StrataColors.TextPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-            )
+    Box(
+        modifier = Modifier.onPreviewKeyEvent { event ->
+            // Channels don't have a watchlist concept — no menu for them.
+            if (result.contentType == "live") return@onPreviewKeyEvent false
+            if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
+            if (event.nativeKeyEvent.keyCode != KeyEvent.KEYCODE_MENU) return@onPreviewKeyEvent false
+
+            val actions = mutableListOf<ContextMenuAction>()
+            if (inWatchlist) {
+                actions += ContextMenuAction("Remove from Watchlist") {
+                    viewModel.removeFromWatchlist(result)
+                }
+            } else {
+                actions += ContextMenuAction("Add to Watchlist") {
+                    viewModel.addToWatchlist(result)
+                }
+            }
+            onMenuShow(actions)
+            true
         },
-        supportingContent = if (result.groupTitle.isNotEmpty()) {
-            {
+    ) {
+        ListItem(
+            selected = false,
+            onClick = onClick,
+            colors = ListItemDefaults.colors(
+                containerColor = StrataColors.SurfaceRaised,
+                contentColor = StrataColors.TextPrimary,
+                focusedContainerColor = StrataColors.SurfaceFloat,
+                focusedContentColor = StrataColors.TextPrimary,
+                selectedContainerColor = StrataColors.SurfaceFloat,
+                selectedContentColor = StrataColors.TextPrimary,
+            ),
+            headlineContent = {
                 Text(
-                    text = result.groupTitle,
-                    color = StrataColors.TextTertiary,
-                    fontSize = 11.sp,
+                    text = displayText,
+                    color = StrataColors.TextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
                     maxLines = 1,
                 )
-            }
-        } else null,
-        leadingContent = {
-            Icon(
-                imageVector = icon,
-                contentDescription = result.contentType,
-                tint = iconColor,
-                modifier = Modifier.size(22.dp),
-            )
-        },
-        trailingContent = {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(iconColor.copy(alpha = 0.15f))
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
-            ) {
-                Text(
-                    text = typeLabel,
-                    color = iconColor,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-        },
-    )
+            },
+            supportingContent = if (result.groupTitle.isNotEmpty()) {
+                {
+                    Text(
+                        text = result.groupTitle,
+                        color = StrataColors.TextTertiary,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                    )
+                }
+            } else null,
+            leadingContent = {
+                // Poster thumbnail when we have one (movies / shows
+                // after TMDB enrichment), falling back to the type
+                // icon otherwise (channels, or pre-enrichment).  48x72
+                // is roughly 2:3 — same aspect as a movie poster.
+                if (result.posterUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(result.posterUrl)
+                            .build(),
+                        contentDescription = displayText,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(width = 48.dp, height = 72.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(StrataColors.SurfaceFloat),
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(width = 48.dp, height = 72.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(StrataColors.SurfaceFloat),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = result.contentType,
+                            tint = iconColor,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+            },
+            trailingContent = {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(iconColor.copy(alpha = 0.15f))
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        text = typeLabel,
+                        color = iconColor,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            },
+        )
+    }
 }

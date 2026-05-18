@@ -391,6 +391,14 @@ interface MovieDao {
     suspend fun setHiddenByContentId(contentId: String, hidden: Boolean)
 
     /**
+     * Batch poster lookup by content_id.  Used by the search screen so
+     * it can render poster thumbnails without firing one DAO call per
+     * result.
+     */
+    @Query("SELECT content_id, poster_url FROM movies WHERE content_id IN (:ids)")
+    suspend fun postersForContentIds(ids: List<String>): List<ContentIdPoster>
+
+    /**
      * Hide every movie whose comma-separated TMDB genre string contains
      * the given token (case-insensitive substring match).  Used by the
      * "Ignore Genre" context menu so the rest of that genre disappears
@@ -492,6 +500,13 @@ interface SeriesDao {
     /** All series including hidden variants — used by [MovieDeduplicator.dedupSeries]. */
     @Query("SELECT * FROM series")
     suspend fun allIncludingHidden(): List<SeriesEntity>
+
+    /** Batch poster lookup by series title — counterpart to [MovieDao.postersForContentIds]. */
+    @Query(
+        "SELECT series_title, poster_url FROM series " +
+            "WHERE series_title COLLATE NOCASE IN (:titles)",
+    )
+    suspend fun postersForTitles(titles: List<String>): List<SeriesTitlePoster>
 
     /** Set the hidden flag on a single series by title. */
     @Query("UPDATE series SET hidden = :hidden WHERE series_title = :title")
@@ -861,4 +876,16 @@ interface WatchlistDao {
 data class ProviderCount(
     @androidx.room.ColumnInfo(name = "provider") val provider: String,
     @androidx.room.ColumnInfo(name = "count") val count: Int,
+)
+
+/** Search-screen poster lookup result for a movie row. */
+data class ContentIdPoster(
+    @androidx.room.ColumnInfo(name = "content_id") val contentId: String,
+    @androidx.room.ColumnInfo(name = "poster_url") val posterUrl: String,
+)
+
+/** Search-screen poster lookup result for a series row. */
+data class SeriesTitlePoster(
+    @androidx.room.ColumnInfo(name = "series_title") val seriesTitle: String,
+    @androidx.room.ColumnInfo(name = "poster_url") val posterUrl: String,
 )

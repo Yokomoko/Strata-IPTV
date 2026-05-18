@@ -14,7 +14,7 @@ It also stays out of your way about credentials. Your provider URL, username and
 
 ## What you get
 
-* **Provider setup wizard** with a built-in entry for MyBunny.TV plus generic Xtream Codes and raw M3U options. Subscription expiry pulled from the provider where available.
+* **Provider setup wizard** with built-in entries for MyBunny.TV and GTV/SkyGlass, plus generic Xtream Codes and raw M3U options for everything else. Subscription expiry pulled from the provider where available.
 * **Region and language filters** picked during onboarding so the first sync is already focused on UK and English content (or whatever you want).
 * **Sky Glass style home** with hero rotation, Continue Watching, Watchlist, New Episodes and genre rails.
 * **TMDB enrichment** for movies and series. Posters, backdrops, plots, cast, ratings, trailers.
@@ -53,8 +53,8 @@ Amazon's stock Fire TV launcher squares off sideloaded apps' banners, so Strata'
 You'll need JDK 17 and the Android SDK (API 34).
 
 ```bash
-git clone https://github.com/Yokomoko/StrataTV.git
-cd StrataTV
+git clone https://github.com/Yokomoko/Strata-IPTV.git
+cd Strata-IPTV
 ```
 
 Add a free TMDB API key to `local.properties` (get one from [themoviedb.org](https://www.themoviedb.org/settings/api)):

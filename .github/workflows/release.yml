@@ -68,18 +68,28 @@ jobs:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
-      - name: Rename APK with version
+      - name: Rename APK with version + stable alias
         id: rename
+        # Ship two assets each release: a versioned one for archival
+        # (`strata-tv-0.3.15.apk`) and a stable-named alias
+        # (`strata-iptv.apk`) so
+        #   https://github.com/Yokomoko/Strata-IPTV/releases/latest/download/strata-iptv.apk
+        # always 302s to the current latest build.  The Downloader
+        # / Send-Files-To-TV-style sideloaders need a URL that doesn't
+        # change between versions to be useful.
         run: |
           SOURCE="app/build/outputs/apk/release/app-release.apk"
-          TARGET="app/build/outputs/apk/release/strata-tv-${{ steps.version.outputs.version }}.apk"
+          VERSIONED="app/build/outputs/apk/release/strata-tv-${{ steps.version.outputs.version }}.apk"
+          STABLE="app/build/outputs/apk/release/strata-iptv.apk"
           if [ ! -f "$SOURCE" ]; then
             echo "::error::Release APK not found at $SOURCE"
             exit 1
           fi
-          mv "$SOURCE" "$TARGET"
-          echo "apk_path=${TARGET}" >> "$GITHUB_OUTPUT"
-          ls -la "$TARGET"
+          cp "$SOURCE" "$VERSIONED"
+          cp "$SOURCE" "$STABLE"
+          echo "versioned_apk=${VERSIONED}" >> "$GITHUB_OUTPUT"
+          echo "stable_apk=${STABLE}" >> "$GITHUB_OUTPUT"
+          ls -la "$VERSIONED" "$STABLE"
 
       - name: Create GitHub Release
         # softprops/action-gh-release v2.2.1
@@ -88,5 +98,7 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: Strata TV ${{ steps.version.outputs.version }}
           generate_release_notes: true
-          files: ${{ steps.rename.outputs.apk_path }}
+          files: |
+            ${{ steps.rename.outputs.versioned_apk }}
+            ${{ steps.rename.outputs.stable_apk }}
           fail_on_unmatched_files: true

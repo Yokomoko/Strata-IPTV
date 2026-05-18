@@ -157,21 +157,38 @@ private fun ShowPosterWithMenu(
             if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
                 event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MENU
             ) {
-                val actions = if (inWatchlist) {
-                    listOf(
-                        ContextMenuAction("Remove from Watchlist") {
-                            viewModel.removeFromWatchlist(show.seriesTitle)
-                        },
-                    )
+                val actions = mutableListOf<ContextMenuAction>()
+                if (inWatchlist) {
+                    actions += ContextMenuAction("Remove from Watchlist") {
+                        viewModel.removeFromWatchlist(show.seriesTitle)
+                    }
                 } else {
-                    listOf(
-                        ContextMenuAction("Add to Watchlist") {
-                            viewModel.addToWatchlist(
-                                seriesTitle = show.seriesTitle,
-                                artworkUrl = show.posterUrl,
-                            )
-                        },
-                    )
+                    actions += ContextMenuAction("Add to Watchlist") {
+                        viewModel.addToWatchlist(
+                            seriesTitle = show.seriesTitle,
+                            artworkUrl = show.posterUrl,
+                        )
+                    }
+                }
+                actions += ContextMenuAction("Hide this show") {
+                    viewModel.hideSeries(show.seriesTitle)
+                }
+                show.genre
+                    .split(',')
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .distinct()
+                    .forEach { g ->
+                        actions += ContextMenuAction("Ignore genre: $g") {
+                            viewModel.ignoreGenre(g)
+                        }
+                    }
+                if (show.language.isNotBlank()) {
+                    val name = com.strata.tv.data.settings.AppSettings
+                        .languageDisplayName(show.language)
+                    actions += ContextMenuAction("Ignore language: $name") {
+                        viewModel.ignoreLanguage(show.language)
+                    }
                 }
                 onMenuShow(actions)
                 true

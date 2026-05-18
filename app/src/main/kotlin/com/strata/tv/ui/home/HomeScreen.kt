@@ -665,7 +665,9 @@ private fun SyncBanner(progress: SyncService.Progress) {
 
 /**
  * A MovieCard wrapped in a Box that intercepts KEYCODE_MENU to show a
- * context menu with "Add to Watchlist" / "Remove from Watchlist".
+ * context menu.  Always includes the Watchlist toggle; conditionally
+ * adds Hide / Ignore Genre / Ignore Language entries (issue: cards
+ * built from poor TMDB data should still be removable).
  */
 @Composable
 private fun MovieCardWithContextMenu(
@@ -682,24 +684,7 @@ private fun MovieCardWithContextMenu(
             if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
                 event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MENU
             ) {
-                val actions = if (inWatchlist) {
-                    listOf(
-                        ContextMenuAction("Remove from Watchlist") {
-                            viewModel.removeFromWatchlist(movie.contentId)
-                        },
-                    )
-                } else {
-                    listOf(
-                        ContextMenuAction("Add to Watchlist") {
-                            viewModel.addToWatchlist(
-                                contentId = movie.contentId,
-                                title = movie.movieTitle,
-                                artworkUrl = movie.posterUrl,
-                            )
-                        },
-                    )
-                }
-                onMenuShow(actions)
+                onMenuShow(buildMovieMenu(movie, inWatchlist, viewModel))
                 true
             } else false
         },
@@ -710,6 +695,50 @@ private fun MovieCardWithContextMenu(
             onClick = onClick,
         )
     }
+}
+
+private fun buildMovieMenu(
+    movie: MovieListItem,
+    inWatchlist: Boolean,
+    viewModel: HomeViewModel,
+): List<ContextMenuAction> {
+    val actions = mutableListOf<ContextMenuAction>()
+    if (inWatchlist) {
+        actions += ContextMenuAction("Remove from Watchlist") {
+            viewModel.removeFromWatchlist(movie.contentId)
+        }
+    } else {
+        actions += ContextMenuAction("Add to Watchlist") {
+            viewModel.addToWatchlist(
+                contentId = movie.contentId,
+                title = movie.movieTitle,
+                artworkUrl = movie.posterUrl,
+            )
+        }
+    }
+    actions += ContextMenuAction("Hide this film") {
+        viewModel.hideMovie(movie.contentId)
+    }
+    // Genre column is a comma-separated TMDB string — give the user one
+    // entry per token so multi-genre titles ("Action, Crime") let them
+    // drop just one without nuking the other.
+    movie.genre
+        .split(',')
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .distinct()
+        .forEach { g ->
+            actions += ContextMenuAction("Ignore genre: $g") {
+                viewModel.ignoreGenre(g)
+            }
+        }
+    if (movie.language.isNotBlank()) {
+        val name = com.strata.tv.data.settings.AppSettings.languageDisplayName(movie.language)
+        actions += ContextMenuAction("Ignore language: $name") {
+            viewModel.ignoreLanguage(movie.language)
+        }
+    }
+    return actions
 }
 
 @Composable

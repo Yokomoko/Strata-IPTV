@@ -26,6 +26,23 @@ data class AppSettings(
      * Empty (no entries) == accept all languages.
      */
     val wantedLanguages: Set<String> = DEFAULT_WANTED_LANGUAGES,
+    /**
+     * Genres the user has explicitly told us to drop via the
+     * "Ignore Genre" context menu.  Matched case-insensitively as
+     * substrings of [com.strata.tv.data.db.MovieEntity.genre] /
+     * [com.strata.tv.data.db.SeriesEntity.genre].  Independent of
+     * [excludedCategories] (which matches M3U `group-title` at sync
+     * time) — this filter runs on TMDB-derived genre text.
+     */
+    val excludedGenres: Set<String> = emptySet(),
+    /**
+     * Languages the user has explicitly told us to drop via the
+     * "Ignore Language" context menu.  Acts on top of [wantedLanguages]
+     * (which is the initial-enrichment whitelist) for the case where
+     * the user notices a foreign-language item slipped through and
+     * wants every other item in that language gone too.
+     */
+    val excludedLanguages: Set<String> = emptySet(),
     val blacklistedContentIds: Set<String> = emptySet(),
     val stopStreamInMenus: Boolean = false,
 ) {
@@ -92,6 +109,19 @@ data class AppSettings(
          * a curated subset of the ~200 TMDB languages — the long tail
          * isn't worth the UX cost.
          */
+        /**
+         * Resolve a TMDB ISO-639-1 code to its display name from
+         * [KNOWN_LANGUAGES], falling back to the uppercased code itself
+         * when we don't have a curated mapping (e.g. "tl" for Tagalog).
+         * Used by the "Ignore Language X" context menu so the entry
+         * reads "Ignore Japanese" rather than "Ignore ja".
+         */
+        fun languageDisplayName(code: String): String {
+            if (code.isBlank()) return "Unknown"
+            return KNOWN_LANGUAGES.firstOrNull { it.first == code }?.second
+                ?: code.uppercase()
+        }
+
         val KNOWN_LANGUAGES: List<Pair<String, String>> = listOf(
             "en" to "English",
             "es" to "Spanish",

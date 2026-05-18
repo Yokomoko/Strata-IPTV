@@ -72,6 +72,7 @@ class HomeViewModel @Inject constructor(
     private val watchlistDao: WatchlistDao,
     private val sourceDao: SourceDao,
     private val settingsRepo: SettingsRepository,
+    private val libraryFilter: com.strata.tv.data.repo.LibraryFilterRepository,
 ) : ViewModel() {
 
     // -- Core state (lightweight flows) --------------------------------
@@ -184,6 +185,26 @@ class HomeViewModel @Inject constructor(
     /** Check if a movie is in the Watchlist (snapshot, not flow). */
     suspend fun isInWatchlist(contentId: String): Boolean =
         watchlistDao.watchIsInWatchlist(contentId).first()
+
+    /** Hide a single movie by content id — drives the "Hide this film" menu action. */
+    fun hideMovie(contentId: String) {
+        viewModelScope.launch { libraryFilter.hideMovie(contentId) }
+    }
+
+    /** Hide a series by title — drives the "Hide this show" menu action. */
+    fun hideSeries(seriesTitle: String) {
+        viewModelScope.launch { libraryFilter.hideSeries(seriesTitle) }
+    }
+
+    /** Add a genre to the persistent excluded set and hide every matching row. */
+    fun ignoreGenre(genre: String) {
+        viewModelScope.launch { libraryFilter.ignoreGenre(genre) }
+    }
+
+    /** Add a language code to the persistent excluded set and hide every matching row. */
+    fun ignoreLanguage(languageCode: String) {
+        viewModelScope.launch { libraryFilter.ignoreLanguage(languageCode) }
+    }
 
     init {
         Log.i(TAG, "HomeViewModel init")

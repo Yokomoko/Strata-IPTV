@@ -385,6 +385,28 @@ interface MovieDao {
     /** Set the hidden flag on a single movie by row ID. */
     @Query("UPDATE movies SET hidden = :hidden WHERE id = :id")
     suspend fun setHidden(id: Int, hidden: Boolean)
+
+    /** Set the hidden flag on a movie by content_id (stable across syncs). */
+    @Query("UPDATE movies SET hidden = :hidden WHERE content_id = :contentId")
+    suspend fun setHiddenByContentId(contentId: String, hidden: Boolean)
+
+    /**
+     * Hide every movie whose comma-separated TMDB genre string contains
+     * the given token (case-insensitive substring match).  Used by the
+     * "Ignore Genre" context menu so the rest of that genre disappears
+     * the moment the user taps it.
+     */
+    @Query(
+        """
+        UPDATE movies SET hidden = 1
+        WHERE genre LIKE '%' || :genre || '%' COLLATE NOCASE
+        """,
+    )
+    suspend fun hideByGenre(genre: String): Int
+
+    /** Hide every movie matching the TMDB original_language code. */
+    @Query("UPDATE movies SET hidden = 1 WHERE language = :code")
+    suspend fun hideByLanguage(code: String): Int
 }
 
 // ---------------------------------------------------------------------------
@@ -477,6 +499,19 @@ interface SeriesDao {
 
     @Query("UPDATE series SET hidden = 1 WHERE series_title = :title")
     suspend fun hide(title: String)
+
+    /** Counterpart to [MovieDao.hideByGenre] for the series table. */
+    @Query(
+        """
+        UPDATE series SET hidden = 1
+        WHERE genre LIKE '%' || :genre || '%' COLLATE NOCASE
+        """,
+    )
+    suspend fun hideByGenre(genre: String): Int
+
+    /** Counterpart to [MovieDao.hideByLanguage] for the series table. */
+    @Query("UPDATE series SET hidden = 1 WHERE language = :code")
+    suspend fun hideByLanguage(code: String): Int
 
     @Query("UPDATE series SET provider = :provider WHERE series_title = :title")
     suspend fun updateProvider(title: String, provider: String)

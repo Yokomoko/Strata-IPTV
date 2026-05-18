@@ -36,6 +36,7 @@ import javax.inject.Inject
 class MoviesViewModel @Inject constructor(
     private val movieDao: MovieDao,
     private val watchlistDao: WatchlistDao,
+    private val libraryFilter: com.strata.tv.data.repo.LibraryFilterRepository,
 ) : ViewModel() {
 
     /** Hot list flow — small map, cheap, stays on the Room dispatcher. */
@@ -98,6 +99,18 @@ class MoviesViewModel @Inject constructor(
 
     fun removeFromWatchlist(contentId: String) {
         viewModelScope.launch { watchlistDao.remove(contentId) }
+    }
+
+    fun hideMovie(contentId: String) {
+        viewModelScope.launch { libraryFilter.hideMovie(contentId) }
+    }
+
+    fun ignoreGenre(genre: String) {
+        viewModelScope.launch { libraryFilter.ignoreGenre(genre) }
+    }
+
+    fun ignoreLanguage(languageCode: String) {
+        viewModelScope.launch { libraryFilter.ignoreLanguage(languageCode) }
     }
 }
 

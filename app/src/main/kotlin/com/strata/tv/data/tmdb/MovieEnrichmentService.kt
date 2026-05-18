@@ -67,9 +67,12 @@ class MovieEnrichmentService @Inject constructor(
     private suspend fun enrichSingle(movie: MovieEntity) {
         try {
             var tmdbId = movie.tmdbId
-            // Snapshot the user's wanted-languages whitelist for this call.
-            // Empty whitelist means "accept any language".
-            val wantedLanguages = settingsRepo.current().wantedLanguages
+            // Snapshot the language + genre filters for this call so the
+            // rules are consistent for both Search and Detail passes.
+            val settings = settingsRepo.current()
+            val wantedLanguages = settings.wantedLanguages
+            val excludedLanguages = settings.excludedLanguages
+            val excludedGenres = settings.excludedGenres
 
             // Step 1: Search for TMDB ID (skip if already known)
             if (tmdbId == 0) {
@@ -80,22 +83,28 @@ class MovieEnrichmentService @Inject constructor(
                     year = movie.year ?: cleaned.year,
                 )
                 val match = response.results.firstOrNull() ?: return
-                val isWanted = wantedLanguages.isEmpty() ||
-                    match.originalLanguage.orEmpty() in wantedLanguages
+                val lang = match.originalLanguage.orEmpty()
+                val genreStr = match.genreIds.joinToString(", ") { genreName(it) }
+                val isLangWanted = wantedLanguages.isEmpty() || lang in wantedLanguages
+                val isLangExcluded = lang in excludedLanguages
+                val isGenreExcluded = excludedGenres.any { g ->
+                    g.isNotEmpty() && genreStr.contains(g, ignoreCase = true)
+                }
+                val isHidden = !isLangWanted || isLangExcluded || isGenreExcluded
 
                 movieDao.updateMetadata(
                     contentId = movie.contentId,
                     poster = match.posterPath?.let {
                         "${AppConfig.TMDB_IMAGE_BASE}/${AppConfig.TMDB_POSTER_SIZE}$it"
                     } ?: "",
-                    genre = match.genreIds.joinToString(", ") { genreName(it) },
+                    genre = genreStr,
                     rating = match.voteAverage,
-                    language = match.originalLanguage.orEmpty(),
-                    hidden = !isWanted,
+                    language = lang,
+                    hidden = isHidden,
                     tmdbId = match.id,
                 )
 
-                if (!isWanted) return
+                if (isHidden) return
                 tmdbId = match.id
                 delay(PACE_MS)
             }

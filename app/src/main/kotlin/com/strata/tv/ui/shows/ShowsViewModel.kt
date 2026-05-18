@@ -32,6 +32,7 @@ import javax.inject.Inject
 class ShowsViewModel @Inject constructor(
     private val seriesDao: SeriesDao,
     private val watchlistDao: WatchlistDao,
+    private val libraryFilter: com.strata.tv.data.repo.LibraryFilterRepository,
 ) : ViewModel() {
 
     private val shows = seriesDao.watchAll()
@@ -86,6 +87,18 @@ class ShowsViewModel @Inject constructor(
 
     fun removeFromWatchlist(seriesTitle: String) {
         viewModelScope.launch { watchlistDao.remove(seriesTitle) }
+    }
+
+    fun hideSeries(seriesTitle: String) {
+        viewModelScope.launch { libraryFilter.hideSeries(seriesTitle) }
+    }
+
+    fun ignoreGenre(genre: String) {
+        viewModelScope.launch { libraryFilter.ignoreGenre(genre) }
+    }
+
+    fun ignoreLanguage(languageCode: String) {
+        viewModelScope.launch { libraryFilter.ignoreLanguage(languageCode) }
     }
 }
 

@@ -41,6 +41,8 @@ class SettingsRepository @Inject constructor(
         val COUNTRY_WHITELIST = stringSetPreferencesKey("country_whitelist")
         val EXCLUDED_CATEGORIES = stringSetPreferencesKey("excluded_categories")
         val WANTED_LANGUAGES = stringSetPreferencesKey("wanted_languages")
+        val EXCLUDED_GENRES = stringSetPreferencesKey("excluded_genres")
+        val EXCLUDED_LANGUAGES = stringSetPreferencesKey("excluded_languages")
         val BLACKLIST = stringSetPreferencesKey("blacklist")
         val STOP_STREAM_IN_MENUS = booleanPreferencesKey("stop_stream_in_menus")
     }
@@ -65,6 +67,8 @@ class SettingsRepository @Inject constructor(
                 ?: AppSettings.DEFAULT_EXCLUDED_CATEGORIES,
             wantedLanguages = prefs[Keys.WANTED_LANGUAGES]
                 ?: AppSettings.DEFAULT_WANTED_LANGUAGES,
+            excludedGenres = prefs[Keys.EXCLUDED_GENRES] ?: emptySet(),
+            excludedLanguages = prefs[Keys.EXCLUDED_LANGUAGES] ?: emptySet(),
             blacklistedContentIds = prefs[Keys.BLACKLIST] ?: emptySet(),
             stopStreamInMenus = prefs[Keys.STOP_STREAM_IN_MENUS] ?: false,
         )
@@ -116,6 +120,38 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setWantedLanguages(values: Set<String>) {
         context.settingsStore.edit { it[Keys.WANTED_LANGUAGES] = values }
+    }
+
+    suspend fun addExcludedGenre(genre: String) {
+        val trimmed = genre.trim()
+        if (trimmed.isEmpty()) return
+        context.settingsStore.edit { prefs ->
+            val current = prefs[Keys.EXCLUDED_GENRES] ?: emptySet()
+            prefs[Keys.EXCLUDED_GENRES] = current + trimmed
+        }
+    }
+
+    suspend fun removeExcludedGenre(genre: String) {
+        context.settingsStore.edit { prefs ->
+            val current = prefs[Keys.EXCLUDED_GENRES] ?: emptySet()
+            prefs[Keys.EXCLUDED_GENRES] = current - genre
+        }
+    }
+
+    suspend fun addExcludedLanguage(code: String) {
+        val trimmed = code.trim()
+        if (trimmed.isEmpty()) return
+        context.settingsStore.edit { prefs ->
+            val current = prefs[Keys.EXCLUDED_LANGUAGES] ?: emptySet()
+            prefs[Keys.EXCLUDED_LANGUAGES] = current + trimmed
+        }
+    }
+
+    suspend fun removeExcludedLanguage(code: String) {
+        context.settingsStore.edit { prefs ->
+            val current = prefs[Keys.EXCLUDED_LANGUAGES] ?: emptySet()
+            prefs[Keys.EXCLUDED_LANGUAGES] = current - code
+        }
     }
 
     suspend fun addToBlacklist(contentId: String) {

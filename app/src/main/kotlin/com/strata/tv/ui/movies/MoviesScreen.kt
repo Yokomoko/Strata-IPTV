@@ -160,22 +160,39 @@ private fun MoviePosterWithMenu(
             if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
                 event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MENU
             ) {
-                val actions = if (inWatchlist) {
-                    listOf(
-                        ContextMenuAction("Remove from Watchlist") {
-                            viewModel.removeFromWatchlist(movie.contentId)
-                        },
-                    )
+                val actions = mutableListOf<ContextMenuAction>()
+                if (inWatchlist) {
+                    actions += ContextMenuAction("Remove from Watchlist") {
+                        viewModel.removeFromWatchlist(movie.contentId)
+                    }
                 } else {
-                    listOf(
-                        ContextMenuAction("Add to Watchlist") {
-                            viewModel.addToWatchlist(
-                                contentId = movie.contentId,
-                                title = movie.movieTitle,
-                                artworkUrl = movie.posterUrl,
-                            )
-                        },
-                    )
+                    actions += ContextMenuAction("Add to Watchlist") {
+                        viewModel.addToWatchlist(
+                            contentId = movie.contentId,
+                            title = movie.movieTitle,
+                            artworkUrl = movie.posterUrl,
+                        )
+                    }
+                }
+                actions += ContextMenuAction("Hide this film") {
+                    viewModel.hideMovie(movie.contentId)
+                }
+                movie.genre
+                    .split(',')
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .distinct()
+                    .forEach { g ->
+                        actions += ContextMenuAction("Ignore genre: $g") {
+                            viewModel.ignoreGenre(g)
+                        }
+                    }
+                if (movie.language.isNotBlank()) {
+                    val name = com.strata.tv.data.settings.AppSettings
+                        .languageDisplayName(movie.language)
+                    actions += ContextMenuAction("Ignore language: $name") {
+                        viewModel.ignoreLanguage(movie.language)
+                    }
                 }
                 onMenuShow(actions)
                 true

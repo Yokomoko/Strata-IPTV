@@ -55,7 +55,10 @@ class SeriesEnrichmentService @Inject constructor(
     }
 
     private suspend fun searchBatch(pending: List<SeriesEntity>) {
-        val wantedLanguages = settingsRepo.current().wantedLanguages
+        val settings = settingsRepo.current()
+        val wantedLanguages = settings.wantedLanguages
+        val excludedLanguages = settings.excludedLanguages
+        val excludedGenres = settings.excludedGenres
         for (series in pending) {
             runCatching {
                 val cleaned = TitleParser.cleanForSearch(series.seriesTitle)
@@ -65,8 +68,14 @@ class SeriesEnrichmentService @Inject constructor(
                     year = cleaned.year,
                 )
                 val match = response.results.firstOrNull() ?: return@runCatching
-                val isWanted = wantedLanguages.isEmpty() ||
-                    match.originalLanguage.orEmpty() in wantedLanguages
+                val lang = match.originalLanguage.orEmpty()
+                val genreStr = match.genreIds.joinToString(", ") { tvGenreName(it) }
+                val isLangWanted = wantedLanguages.isEmpty() || lang in wantedLanguages
+                val isLangExcluded = lang in excludedLanguages
+                val isGenreExcluded = excludedGenres.any { g ->
+                    g.isNotEmpty() && genreStr.contains(g, ignoreCase = true)
+                }
+                val isHidden = !isLangWanted || isLangExcluded || isGenreExcluded
 
                 seriesDao.updateMetadata(
                     title = series.seriesTitle,
@@ -77,9 +86,9 @@ class SeriesEnrichmentService @Inject constructor(
                         "${AppConfig.TMDB_IMAGE_BASE}/${AppConfig.TMDB_BACKDROP_SIZE}$it"
                     } ?: "",
                     plot = match.overview.orEmpty(),
-                    genre = match.genreIds.joinToString(", ") { tvGenreName(it) },
-                    language = match.originalLanguage.orEmpty(),
-                    hidden = !isWanted,
+                    genre = genreStr,
+                    language = lang,
+                    hidden = isHidden,
                     tmdbId = match.id,
                     totalSeasons = series.totalSeasons,
                     totalEpisodes = series.totalEpisodes,

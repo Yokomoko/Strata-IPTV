@@ -89,6 +89,19 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsRepo.clearProvider() }
     }
 
+    /**
+     * Toggle the "use website-curated filtered playlist" flag on the
+     * current provider config and persist it.  Triggers a re-sync on
+     * next launch (or via "Refresh library now") so the new URL is
+     * actually exercised.
+     */
+    fun setUseFilteredPlaylist(value: Boolean) {
+        viewModelScope.launch {
+            val current = settingsRepo.current().provider
+            settingsRepo.setProvider(current.copy(useFilteredPlaylist = value))
+        }
+    }
+
     fun setSyncFrequency(value: SyncFrequency) {
         viewModelScope.launch { settingsRepo.setSyncFrequency(value) }
     }

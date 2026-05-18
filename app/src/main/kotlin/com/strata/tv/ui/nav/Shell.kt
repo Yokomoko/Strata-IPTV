@@ -104,7 +104,15 @@ fun Shell(
     // homeViewModel already instantiated above (before the gate) so
     // its init block has fired and the first sync is in flight.
     val homeState by homeViewModel.state.collectAsState()
-    var firstLoadComplete by remember { mutableStateOf(enrichmentTracker == null) }
+    // Suppress the splash entirely if the user just came through the
+    // first-run wizard / sync progress screen — they've already sat
+    // through a loading UI, a second one would be tedious.  On
+    // subsequent app launches `passedThroughGate` stays false and the
+    // splash plays its usual 8-second startup-sound bridge.
+    val passedThroughGate by gateViewModel.passedThroughGate.collectAsState()
+    var firstLoadComplete by remember(passedThroughGate) {
+        mutableStateOf(enrichmentTracker == null || passedThroughGate)
+    }
 
     // Dismiss on first data.
     LaunchedEffect(homeState) {

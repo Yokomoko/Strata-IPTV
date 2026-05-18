@@ -99,6 +99,24 @@ fun SettingsScreen(
                         supporting = "$status, expires $expiry, ${info.activeConnections}/${info.maxConnections} connections",
                     )
                 }
+                if (settings.provider.providerId != "custom_m3u" &&
+                    settings.provider.providerId.isNotEmpty()
+                ) {
+                    val on = settings.provider.useFilteredPlaylist
+                    ListRow(
+                        headline = if (on) "Using filtered playlist" else "Using full catalogue",
+                        supporting = if (on) {
+                            "Pulling only the channels and films you've ticked " +
+                                "on your provider's website. Tap to switch back " +
+                                "to the full catalogue."
+                        } else {
+                            "Pulling your provider's full catalogue. Tap to switch " +
+                                "to the personal playlist you curated on the " +
+                                "provider's website."
+                        },
+                        onClick = { viewModel.setUseFilteredPlaylist(!on) },
+                    )
+                }
                 ListRow(
                     headline = "Change provider",
                     supporting = "Reset and re-enter your IPTV credentials",

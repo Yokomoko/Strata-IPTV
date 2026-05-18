@@ -14,6 +14,8 @@ import com.strata.tv.data.m3u.M3uEntry
 import com.strata.tv.data.m3u.M3uParser
 import com.strata.tv.data.m3u.ParseResult
 import com.strata.tv.data.settings.SettingsRepository
+import com.strata.tv.data.xtream.XtreamJsonClient
+import com.strata.tv.data.xtream.XtreamSnapshot
 import com.strata.tv.domain.ChannelCategorizer
 import com.strata.tv.domain.ChannelDeduplicator
 import com.strata.tv.domain.ContentIdHasher
@@ -59,6 +61,7 @@ class SyncService @Inject constructor(
     private val episodeDao: EpisodeDao,
     private val progressTracker: com.strata.tv.data.tmdb.EnrichmentProgressTracker,
     private val settingsRepo: SettingsRepository,
+    private val xtreamJson: XtreamJsonClient,
 ) {
 
     sealed interface Progress {
@@ -72,6 +75,17 @@ class SyncService @Inject constructor(
 
     private val _progress = MutableStateFlow<Progress>(Progress.Idle)
     val progress: StateFlow<Progress> = _progress.asStateFlow()
+
+    /**
+     * Called by [com.strata.tv.ui.home.HomeViewModel] when it decides
+     * no fresh sync is needed (returning user, sync frequency cap not
+     * yet reached).  Without this, [progress] would stay [Progress.Idle]
+     * and the gate that's now wired to wait for sync + enrichment would
+     * never transition to Main.
+     */
+    fun markSkipped() {
+        _progress.value = Progress.Done(totalParsed = 0, totalSkipped = 0)
+    }
 
     /**
      * Fetch [playlistUrl], parse, classify, dedup and write to Room.
@@ -125,18 +139,16 @@ class SyncService @Inject constructor(
             val movies = mutableListOf<M3uEntry>()
             val episodes = mutableListOf<M3uEntry>()
 
-            // Stream the playlist body line-by-line (perf review #10).
-            // Previously `response.body.string()` materialised the full
-            // 20-50 MB playlist as a single UTF-8 String on the heap
-            // before the parser even started — combined with the three
-            // mutableListOf buffers below, first-launch sync could
-            // transiently consume 60-100 MB of heap and trigger the
-            // Fire Stick low-memory killer.
-            //
-            // The whole HTTP → parse pipeline runs inside the `use { }`
-            // block so the response is closed the moment we exit, even
-            // on cancellation or mid-parse throw.
-            withContext(Dispatchers.IO) {
+            // Try the M3U URL first, but peek the response body to
+            // detect JSON-only Xtream providers (e.g. MyBunny.TV).
+            // Their `get.php` returns a 354-byte JSON auth blob instead
+            // of an M3U playlist, so the existing line-based parser
+            // would parse zero entries and the user would never see
+            // any content.  When we detect that, fall back to the
+            // Xtream Codes JSON API (`player_api.php`) which is the
+            // universal Xtream interface.
+            val provider = settings.provider
+            val useJsonApi = withContext(Dispatchers.IO) {
                 http.newCall(Request.Builder().url(playlistUrl).build())
                     .execute()
                     .use { response ->
@@ -144,6 +156,30 @@ class SyncService @Inject constructor(
                             error("HTTP ${response.code} fetching $playlistUrl")
                         }
                         val body = response.body ?: error("Empty playlist body")
+                        val contentType = response.header("Content-Type").orEmpty()
+
+                        // Cheap peek: read up to ~512 bytes to detect
+                        // whether the body looks like M3U (`#EXTM3U`)
+                        // or JSON.  Avoids buffering the full 5-50 MB.
+                        val source = body.source()
+                        source.request(512)
+                        val peek = source.peek().readUtf8(
+                            minOf(512L, source.buffer.size),
+                        ).trimStart()
+                        val isJsonResponse = contentType.contains("json", ignoreCase = true) ||
+                            peek.startsWith("{") || peek.startsWith("[")
+
+                        if (isJsonResponse) {
+                            // Bail out of the M3U path; JSON branch
+                            // will issue fresh requests via
+                            // XtreamJsonClient.
+                            return@use true
+                        }
+
+                        // Standard M3U: stream the body line-by-line
+                        // into the parser without loading the whole
+                        // playlist as a String (Fire Stick has ~512 MB
+                        // app heap shared with ExoPlayer + Compose).
                         body.charStream().buffered().useLines { lines ->
                             parser.parseLines(lines).collect { result ->
                                 when (result) {
@@ -167,7 +203,51 @@ class SyncService @Inject constructor(
                                 }
                             }
                         }
+                        false
                     }
+            }
+
+            var seriesMetaToPersist: List<com.strata.tv.data.xtream.XtreamSeriesMeta> = emptyList()
+            if (useJsonApi) {
+                val host = provider.host
+                val user = provider.username
+                val pass = provider.password
+                if (host.isBlank() || user.isBlank() || pass.isBlank()) {
+                    error(
+                        "Provider returned JSON from get.php but no Xtream " +
+                            "credentials are configured; cannot fall back",
+                    )
+                }
+                val snapshot: XtreamSnapshot = xtreamJson.fetchAll(
+                    host = host,
+                    user = user,
+                    pass = pass,
+                    onProgress = { status ->
+                        _progress.value = Progress.Parsing(
+                            parsed = live.size + movies.size + episodes.size,
+                            skipped = 0,
+                        )
+                        progressTracker.setLabel(status)
+                    },
+                )
+                for (entry in snapshot.live) if (!isExcluded(entry)) live.add(entry)
+                for (entry in snapshot.movies) if (!isExcluded(entry)) movies.add(entry)
+                // Episodes are lazy-loaded per series at detail-screen
+                // open time — we just persist the catalogue here.
+                seriesMetaToPersist = snapshot.seriesMeta.filter { meta ->
+                    if (countryWhitelist.isNotEmpty() && meta.groupTitle.contains('|')) {
+                        val prefix = meta.groupTitle.substringBefore('|').trim().uppercase()
+                        if (prefix.isNotEmpty() && prefix !in countryWhitelist) return@filter false
+                    }
+                    if (excludedCategories.isNotEmpty()) {
+                        val g = meta.groupTitle.lowercase()
+                        if (excludedCategories.any { needle -> g.contains(needle) }) return@filter false
+                    }
+                    true
+                }
+                progressTracker.syncComplete(
+                    live.size + movies.size + episodes.size + seriesMetaToPersist.size,
+                )
             }
 
             _progress.value = Progress.PostProcessing
@@ -175,6 +255,7 @@ class SyncService @Inject constructor(
             persistLive(live, sourceId, playlistUrl)
             persistMovies(movies, sourceId, playlistUrl)
             persistShows(episodes, sourceId, playlistUrl)
+            persistSeriesCatalogue(seriesMetaToPersist)
 
             _progress.value = Progress.Done(
                 totalParsed = live.size + movies.size + episodes.size,
@@ -410,6 +491,34 @@ class SyncService @Inject constructor(
         contentDao.upsertAll(contentRows)
         seriesDao.upsertAll(seriesRows)
         episodeDao.upsertAll(episodeRows)
+    }
+
+    /**
+     * Persist a Xtream series catalogue (metadata only — episodes will
+     * be lazy-loaded by the show detail screen).  We don't blow away
+     * the user's existing per-series progress columns when we re-sync;
+     * `upsertAll` preserves them via Room's `@Upsert` matching on the
+     * unique `series_title` index, except for `xtream_series_id` which
+     * we always overwrite so the lazy fetcher has a current id.
+     */
+    private suspend fun persistSeriesCatalogue(
+        snapshot: List<com.strata.tv.data.xtream.XtreamSeriesMeta>,
+    ) {
+        if (snapshot.isEmpty()) return
+        val rows = snapshot.map { meta ->
+            // Preserve totals/last-seen counters across re-sync — if a
+            // row already exists, we only need to update xtream_series_id.
+            // If it doesn't, we insert a fresh row with sane defaults.
+            // SeriesEnrichmentService will fill in poster/backdrop/plot
+            // separately when it next runs.
+            val existing = seriesDao.byTitle(meta.title)
+            existing?.copy(xtreamSeriesId = meta.xtreamSeriesId)
+                ?: SeriesEntity(
+                    seriesTitle = meta.title,
+                    xtreamSeriesId = meta.xtreamSeriesId,
+                )
+        }
+        seriesDao.upsertAll(rows)
     }
 
 }

@@ -595,6 +595,12 @@ interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE series_title = :title COLLATE NOCASE ORDER BY season_number, episode_number")
     fun watchSeries(title: String): Flow<List<EpisodeEntity>>
 
+    /** Plain count of stored episodes for a series — used by the show
+     *  detail screen to decide whether a lazy `get_series_info` fetch
+     *  is needed before rendering. */
+    @Query("SELECT COUNT(*) FROM episodes WHERE series_title = :title COLLATE NOCASE")
+    suspend fun countForSeries(title: String): Int
+
     /** First episode of a series (lowest season, then lowest episode) — for "play series" shortcuts. */
     @Query(
         """

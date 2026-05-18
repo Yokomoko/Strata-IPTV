@@ -68,3 +68,17 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
         )
     }
 }
+
+/**
+ * v6 → v7: adds `xtream_series_id` to `series` so the show detail screen
+ * can lazy-load episodes via `player_api.php?action=get_series_info`.
+ * Nullable because raw-M3U providers ship episodes inline and don't
+ * have a separate series-level id.
+ */
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE series ADD COLUMN xtream_series_id INTEGER DEFAULT NULL",
+        )
+    }
+}

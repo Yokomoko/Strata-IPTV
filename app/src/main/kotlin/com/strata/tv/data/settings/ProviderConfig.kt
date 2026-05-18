@@ -22,6 +22,20 @@ data class ProviderConfig(
      * in this case.
      */
     val customM3uUrl: String = "",
+    /**
+     * When true, pull the user's website-curated filtered playlist
+     * from `{host}/client/download.php?u=…&p=…` instead of the full
+     * provider catalogue.  This is the "Personal Playlist" the user
+     * can build at https://mybunny.tv (and other Xtream UI-based
+     * providers); it returns a standard M3U so the regular parser
+     * pipeline handles it without the JSON fallback.
+     *
+     * Defaults to `false` — the wizard surfaces this as an opt-in
+     * with a warning that the user must have actually curated a list
+     * on the provider's website first, otherwise the playlist will
+     * come back empty.
+     */
+    val useFilteredPlaylist: Boolean = false,
 ) {
     val isConfigured: Boolean
         get() = when (providerId) {
@@ -31,8 +45,14 @@ data class ProviderConfig(
         }
 
     /** Resolve the M3U playlist URL for [SyncService.syncFromUrl]. */
-    fun toM3uUrl(): String = when (providerId) {
-        "custom_m3u" -> customM3uUrl
+    fun toM3uUrl(): String = when {
+        providerId == "custom_m3u" -> customM3uUrl
+        useFilteredPlaylist -> {
+            // Website-curated personal playlist.  Returns a real M3U so
+            // the standard parser handles it; no JSON fallback needed.
+            val base = host.trimEnd('/')
+            "$base/client/download.php?u=$username&p=$password"
+        }
         else -> {
             // Don't pin output=ts.  Some providers (MyBunny.TV is one)
             // return an empty body when this parameter is set.  The

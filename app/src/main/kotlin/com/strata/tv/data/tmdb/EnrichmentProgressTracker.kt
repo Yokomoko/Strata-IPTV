@@ -22,6 +22,14 @@ class EnrichmentProgressTracker @Inject constructor() {
         val total: Int = 0,
         val isRunning: Boolean = false,
         val label: String = "",
+        /**
+         * Set to true the first time [startEnrichment] runs with a
+         * non-zero work total this process lifetime.  The first-sync
+         * gate needs this so it doesn't transition to the main shell
+         * before TMDB has had a chance to populate posters and titles.
+         * Once true, stays true — there's no resetting after a sync.
+         */
+        val enrichmentHasStarted: Boolean = false,
     ) {
         val fraction: Float
             get() = if (total > 0) (processed.toFloat() / total).coerceIn(0f, 1f) else 0f
@@ -63,21 +71,30 @@ class EnrichmentProgressTracker @Inject constructor() {
      *  If total is 0, nothing to enrich — hide the ring. */
     fun startEnrichment(total: Int) {
         if (total == 0) {
-            _progress.value = Progress(isRunning = false)
+            _progress.update { it.copy(isRunning = false) }
             return
         }
-        _progress.value = Progress(
-            processed = 0,
-            total = total,
-            isRunning = true,
-            label = "Enriching",
-        )
+        _progress.update {
+            it.copy(
+                processed = 0,
+                total = total,
+                isRunning = true,
+                label = "Enriching",
+                enrichmentHasStarted = true,
+            )
+        }
     }
 
     /** Enrichment batch discovered — adds to the total and re-enables ring. */
     fun addWork(count: Int) {
         if (count <= 0) return
-        _progress.update { it.copy(total = it.total + count, isRunning = true) }
+        _progress.update {
+            it.copy(
+                total = it.total + count,
+                isRunning = true,
+                enrichmentHasStarted = true,
+            )
+        }
     }
 
     /** One item enriched. */
@@ -88,6 +105,16 @@ class EnrichmentProgressTracker @Inject constructor() {
     /** All done. */
     fun finish() {
         _progress.update { it.copy(isRunning = false) }
+    }
+
+    /**
+     * Override the ring's status label without changing the counters.
+     * Used by the JSON sync path to surface phases like
+     * "Loading episodes (1200 / 4881)" while the same ring continues
+     * to tick along.
+     */
+    fun setLabel(label: String) {
+        _progress.update { it.copy(label = label, isRunning = true) }
     }
 
     /** Full reset. */

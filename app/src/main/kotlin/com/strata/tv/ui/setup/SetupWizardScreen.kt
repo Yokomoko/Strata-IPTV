@@ -247,6 +247,11 @@ private fun CredentialsStep(state: SetupState, viewModel: SetupViewModel) {
                 isPassword = true,
             )
             Spacer(Modifier.height(20.dp))
+            PlaylistSourceToggle(
+                useFiltered = state.useFilteredPlaylist,
+                onToggle = { viewModel.toggleUseFilteredPlaylist() },
+            )
+            Spacer(Modifier.height(16.dp))
             AdvancedRow(
                 expanded = advancedOpen,
                 hostPreview = state.providerHost,
@@ -276,6 +281,62 @@ private fun CredentialsStep(state: SetupState, viewModel: SetupViewModel) {
         enabled = !state.testing,
         onClick = { viewModel.submitCredentials() },
     )
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun PlaylistSourceToggle(
+    useFiltered: Boolean,
+    onToggle: () -> Unit,
+) {
+    Surface(
+        onClick = onToggle,
+        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = StrataColors.SurfaceRaised,
+            focusedContainerColor = StrataColors.SurfaceFloat,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+        ) {
+            // Plain text checkbox indicator — keeps the wizard's look
+            // consistent with the country / language chips above.
+            Text(
+                text = if (useFiltered) "[x]" else "[ ]",
+                color = if (useFiltered) StrataColors.AccentPrimaryBright
+                else StrataColors.TextTertiary,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Use my filtered list",
+                    color = StrataColors.TextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = if (useFiltered) {
+                        "Pulls only the channels and films you've ticked " +
+                            "on your provider's website. Make sure you've " +
+                            "actually picked something there or your library " +
+                            "will be empty."
+                    } else {
+                        "Off — pulls your provider's full catalogue. " +
+                            "Tick this if you've curated a personal " +
+                            "playlist on the provider's website."
+                    },
+                    color = StrataColors.TextSecondary,
+                    fontSize = 12.sp,
+                )
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)

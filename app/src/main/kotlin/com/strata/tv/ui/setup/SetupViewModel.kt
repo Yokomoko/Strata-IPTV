@@ -87,6 +87,10 @@ class SetupViewModel @Inject constructor(
         _state.update { it.copy(languages = emptySet()) }
     }
 
+    fun toggleUseFilteredPlaylist() {
+        _state.update { it.copy(useFilteredPlaylist = !it.useFilteredPlaylist) }
+    }
+
     /**
      * Submit credentials and advance to the Filters step.  We test the
      * connection now so a bad password keeps the user on the credentials
@@ -153,6 +157,11 @@ data class SetupState(
     val countries: Set<String> = AppSettings.DEFAULT_COUNTRY_WHITELIST,
     /** Selected language codes — defaults to English + unspecified. */
     val languages: Set<String> = AppSettings.DEFAULT_WANTED_LANGUAGES,
+    /**
+     * Pull the user's website-curated personal playlist instead of the
+     * provider's full catalogue.  Default off — see [ProviderConfig.useFilteredPlaylist].
+     */
+    val useFilteredPlaylist: Boolean = false,
     val testing: Boolean = false,
     val errorMessage: String? = null,
     val finished: Boolean = false,
@@ -163,5 +172,6 @@ data class SetupState(
         username = username,
         password = password,
         customM3uUrl = customM3uUrl,
+        useFilteredPlaylist = useFilteredPlaylist,
     )
 }

@@ -16,10 +16,14 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -63,13 +67,22 @@ fun SyncProgressScreen(
         ),
         Phase(
             id = "enrich",
-            title = "Fetching posters and details",
-            subtitle = "Looking up artwork, plots and cast from TMDB",
+            title = "Filtering and adding details",
+            subtitle = "Looking up TMDB for artwork and dropping anything not in your selected languages",
         ),
     )
     val currentPhase = currentPhase(progress, enrichment)
     val fraction = overallFraction(progress, enrichment)
     val animatedFraction by animateFloatAsState(targetValue = fraction, label = "sync-progress")
+
+    // The "Sync in background" button is the only focusable thing on
+    // this screen; the D-pad has nowhere else to go.  Request focus
+    // once on first composition so the user can press OK / Center
+    // immediately instead of being stuck on a non-interactive screen.
+    val skipFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        runCatching { skipFocusRequester.requestFocus() }
+    }
 
     Box(
         modifier = Modifier
@@ -139,6 +152,7 @@ fun SyncProgressScreen(
 
             Surface(
                 onClick = onSkipToBackground,
+                modifier = Modifier.focusRequester(skipFocusRequester),
                 shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = StrataColors.SurfaceFloat,
@@ -249,9 +263,13 @@ private fun currentDetail(
     enrichment: EnrichmentProgressTracker.Progress,
 ): String? = when {
     progress is SyncService.Progress.Done && enrichment.isRunning ->
-        "${enrichment.processed} of ${enrichment.total} items enriched (${enrichment.percent}%)"
-    progress is SyncService.Progress.Done && !enrichment.isRunning ->
+        "${enrichment.processed} of ${enrichment.total} filtered and enriched " +
+            "(${enrichment.percent}%)"
+    progress is SyncService.Progress.Done && !enrichment.isRunning &&
+        enrichment.enrichmentHasStarted ->
         "Done"
+    progress is SyncService.Progress.Done && !enrichment.isRunning ->
+        "Starting TMDB lookup..."
     progress is SyncService.Progress.PostProcessing ->
         "Indexing, de-duplicating, applying your filters"
     progress is SyncService.Progress.Parsing ->

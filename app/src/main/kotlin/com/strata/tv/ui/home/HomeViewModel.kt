@@ -230,6 +230,13 @@ class HomeViewModel @Inject constructor(
                     .onFailure { e ->
                         Log.e(TAG, "Sync failed", e)
                     }
+            } else {
+                // Mark the sync pipeline as already-done so the gate
+                // that waits for SyncService.Progress.Done can transition
+                // to Main; otherwise a returning user (sync frequency
+                // cap not yet reached) would be stuck on the FirstSync
+                // progress screen forever.
+                syncService.markSkipped()
             }
 
             // Deduplicate quality variants *before* enrichment so we

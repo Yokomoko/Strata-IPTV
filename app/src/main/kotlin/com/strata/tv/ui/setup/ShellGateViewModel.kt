@@ -9,7 +9,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
@@ -32,23 +34,53 @@ class ShellGateViewModel @Inject constructor(
 
     private val backgroundedFirstSync = MutableStateFlow(false)
 
+    /**
+     * True if the user has been through the [GateStage.Wizard] or
+     * [GateStage.FirstSync] screens at any point this process lifetime.
+     *
+     * The Shell uses this to suppress the "Loading your library" splash
+     * overlay on the very first run — the user has just sat through the
+     * wizard and the sync progress screen, so dropping them straight
+     * into a populating home screen is a much smoother transition than
+     * a fresh splash that adds another 8 seconds before anything
+     * useful appears.
+     */
+    private val _passedThroughGate = MutableStateFlow(false)
+    val passedThroughGate: StateFlow<Boolean> = _passedThroughGate.asStateFlow()
+
     val stage: StateFlow<GateStage?> = combine(
         settings.settings,
         backgroundedFirstSync,
         syncService.progress,
-    ) { snapshot, backgrounded, progress ->
+        enrichmentTracker.progress,
+    ) { snapshot, backgrounded, syncProgress, enrich ->
         val isConfigured = snapshot.provider.isConfigured
-        val firstSyncDone = progress is SyncService.Progress.Done
+        val syncDone = syncProgress is SyncService.Progress.Done
+        // Enrichment is "done" when:
+        //   - it has been kicked off at least once (`enrichmentHasStarted`)
+        //     AND it's no longer running (the tracker calls `finish()`
+        //     when there's no work left), OR
+        //   - the first sync never queued any enrichment work at all
+        //     (e.g. an empty catalogue), so we shouldn't wait for it.
+        val enrichDone = !enrich.isRunning &&
+            (enrich.enrichmentHasStarted || syncDone && syncProgress.totalParsed == 0)
         when {
             !isConfigured -> GateStage.Wizard
-            firstSyncDone || backgrounded -> GateStage.Main
+            backgrounded -> GateStage.Main
+            syncDone && enrichDone -> GateStage.Main
             else -> GateStage.FirstSync
         }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = null,
-    )
+    }
+        .onEach { current ->
+            if (current == GateStage.Wizard || current == GateStage.FirstSync) {
+                _passedThroughGate.value = true
+            }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = null,
+        )
 
     fun skipToBackground() {
         backgroundedFirstSync.value = true

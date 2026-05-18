@@ -187,6 +187,15 @@ data class SeriesEntity(
      */
     @ColumnInfo(name = "last_seen_total_episodes", defaultValue = "0")
     val lastSeenTotalEpisodes: Int = 0,
+    /**
+     * The provider's opaque `series_id` from the Xtream JSON API.
+     * Stored so the show detail screen can lazy-load episodes via
+     * `player_api.php?action=get_series_info&series_id=…` without
+     * having to refetch the whole catalogue.  `null` for series imported
+     * from a plain M3U (those already ship per-episode entries inline).
+     */
+    @ColumnInfo(name = "xtream_series_id", defaultValue = "NULL")
+    val xtreamSeriesId: Int? = null,
 ) {
     /** Convenience: there are episodes the user hasn't seen mentioned yet. */
     val hasNewEpisodes: Boolean

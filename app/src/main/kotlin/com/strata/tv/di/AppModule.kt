@@ -11,6 +11,7 @@ import com.strata.tv.data.db.FavouriteDao
 import com.strata.tv.data.db.MIGRATION_3_4
 import com.strata.tv.data.db.MIGRATION_4_5
 import com.strata.tv.data.db.MIGRATION_5_6
+import com.strata.tv.data.db.MIGRATION_6_7
 import com.strata.tv.data.db.MovieDao
 import com.strata.tv.data.db.ProgrammeDao
 import com.strata.tv.data.db.SeriesDao
@@ -54,7 +55,7 @@ object AppModule {
             // favourites, watchlist, continue-watching, last-watched
             // channel — survives app updates.  Destructive fallback is
             // a last-resort safety net, not the happy path.
-            .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
             .fallbackToDestructiveMigration()
             .build()
     }

@@ -246,7 +246,9 @@ class HomeViewModel @Inject constructor(
                     .onSuccess {
                         Log.i(TAG, "Sync completed successfully")
                         runCatching { sourceDao.markSynced(sourceId, Instant.now()) }
+                            .onFailure { Log.w(TAG, "markSynced failed", it) }
                         runCatching { settingsRepo.setLastSyncEpochDay(today) }
+                            .onFailure { Log.w(TAG, "setLastSyncEpochDay failed", it) }
                     }
                     .onFailure { e ->
                         Log.e(TAG, "Sync failed", e)
@@ -271,8 +273,26 @@ class HomeViewModel @Inject constructor(
 
             // Switch tracker to enrichment phase.
             enrichmentTracker.startEnrichment(total = 0)
-            val movieJob = launch(Dispatchers.IO) { runCatching { movieEnrichment.enrichBatch() } }
-            val seriesJob = launch(Dispatchers.IO) { runCatching { seriesEnrichment.enrichBatch() } }
+            // Each batch is wrapped in runCatching so one failing TMDB
+            // call doesn't take the whole sync down, but the failure
+            // MUST be logged otherwise the user sees an empty library
+            // with zero clue why (issue #47).  An error here also
+            // marks the tracker so the UI can surface "enrichment
+            // failed" rather than silently spinning.
+            val movieJob = launch(Dispatchers.IO) {
+                runCatching { movieEnrichment.enrichBatch() }
+                    .onFailure { e ->
+                        Log.e(TAG, "Movie enrichment batch failed", e)
+                        enrichmentTracker.markError("Movie enrichment failed: ${e.message}")
+                    }
+            }
+            val seriesJob = launch(Dispatchers.IO) {
+                runCatching { seriesEnrichment.enrichBatch() }
+                    .onFailure { e ->
+                        Log.e(TAG, "Series enrichment batch failed", e)
+                        enrichmentTracker.markError("Series enrichment failed: ${e.message}")
+                    }
+            }
             launch {
                 movieJob.join()
                 seriesJob.join()

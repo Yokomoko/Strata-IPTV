@@ -152,6 +152,7 @@ fun Shell(
             resumePositionMs = playerArgs.resumePositionMs,
             contentType = playerArgs.contentType,
             artworkUrl = playerArgs.artworkUrl,
+            contentId = playerArgs.contentId,
             channelList = playerArgs.channelList,
             currentChannelIndex = playerArgs.currentIndex,
             seriesTitle = playerArgs.seriesTitle,

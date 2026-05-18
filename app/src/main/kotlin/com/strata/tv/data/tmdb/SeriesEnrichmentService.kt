@@ -1,7 +1,9 @@
 package com.strata.tv.data.tmdb
 
 import android.util.Log
+import androidx.room.withTransaction
 import com.strata.tv.AppConfig
+import com.strata.tv.data.db.AppDatabase
 import com.strata.tv.data.db.EpisodeDao
 import com.strata.tv.data.db.SeriesDao
 import com.strata.tv.data.db.SeriesEntity
@@ -31,6 +33,7 @@ class SeriesEnrichmentService @Inject constructor(
     private val tmdb: TmdbApi,
     private val seriesDao: SeriesDao,
     private val episodeDao: EpisodeDao,
+    private val db: AppDatabase,
     private val tracker: EnrichmentProgressTracker,
     private val settingsRepo: SettingsRepository,
 ) {
@@ -168,14 +171,20 @@ class SeriesEnrichmentService @Inject constructor(
                         season = seasonNum,
                         apiKey = AppConfig.TMDB_API_KEY,
                     )
-                    for (ep in seasonDetail.episodes) {
-                        if (ep.name.isNotBlank()) {
-                            episodeDao.updateName(
-                                series = series.seriesTitle,
-                                season = seasonNum,
-                                episode = ep.episodeNumber,
-                                title = ep.name,
-                            )
+                    // Batch the per-episode UPDATEs into one transaction
+                    // per season so we commit ~20 rows in one shot instead
+                    // of paying 20 individual fsync costs (kills the
+                    // 8-16 s of I/O on a fresh sync — see issue #45).
+                    db.withTransaction {
+                        for (ep in seasonDetail.episodes) {
+                            if (ep.name.isNotBlank()) {
+                                episodeDao.updateName(
+                                    series = series.seriesTitle,
+                                    season = seasonNum,
+                                    episode = ep.episodeNumber,
+                                    title = ep.name,
+                                )
+                            }
                         }
                     }
                 }.onFailure { e ->

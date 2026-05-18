@@ -1,5 +1,7 @@
 package com.strata.tv.data.repo
 
+import androidx.room.withTransaction
+import com.strata.tv.data.db.AppDatabase
 import com.strata.tv.data.db.ChannelDao
 import com.strata.tv.data.db.ChannelEntity
 import com.strata.tv.data.db.ContentDao
@@ -54,6 +56,7 @@ import javax.inject.Singleton
 class SyncService @Inject constructor(
     private val http: OkHttpClient,
     private val parser: M3uParser,
+    private val db: AppDatabase,
     private val contentDao: ContentDao,
     private val channelDao: ChannelDao,
     private val movieDao: MovieDao,
@@ -341,8 +344,12 @@ class SyncService @Inject constructor(
             )
         }
 
-        contentDao.upsertAll(contentRows)
-        channelDao.upsertAll(channelRows)
+        // Single transaction so a kill between the two upserts can't
+        // leave `content_items` rows with no matching `channels` row.
+        db.withTransaction {
+            contentDao.upsertAll(contentRows)
+            channelDao.upsertAll(channelRows)
+        }
     }
 
     private suspend fun persistMovies(
@@ -386,8 +393,10 @@ class SyncService @Inject constructor(
             )
         }
 
-        contentDao.upsertAll(contentRows)
-        movieDao.upsertAll(movieRows)
+        db.withTransaction {
+            contentDao.upsertAll(contentRows)
+            movieDao.upsertAll(movieRows)
+        }
     }
 
     private suspend fun persistShows(
@@ -488,9 +497,11 @@ class SyncService @Inject constructor(
             }
         }
 
-        contentDao.upsertAll(contentRows)
-        seriesDao.upsertAll(seriesRows)
-        episodeDao.upsertAll(episodeRows)
+        db.withTransaction {
+            contentDao.upsertAll(contentRows)
+            seriesDao.upsertAll(seriesRows)
+            episodeDao.upsertAll(episodeRows)
+        }
     }
 
     /**

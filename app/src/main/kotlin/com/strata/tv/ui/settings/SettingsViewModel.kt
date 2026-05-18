@@ -74,9 +74,15 @@ class SettingsViewModel @Inject constructor(
             val cfg = settings.value.provider
             if (!cfg.isConfigured) return@launch
             val sourceId = bootstrap.ensureSource()
+            // SyncService internally surfaces failures via its own
+            // Progress.Error state — the UI subscribes to that and
+            // renders an error banner.  We still log here as well so
+            // any failure shows up in adb logcat for diagnosis (#47).
             runCatching {
                 syncService.syncFromUrl(cfg.toM3uUrl(), sourceId)
                 settingsRepo.setLastSyncEpochDay(Instant.now().epochSecond / 86_400)
+            }.onFailure { e ->
+                android.util.Log.e("SettingsVM", "refreshLibrary failed", e)
             }
         }
     }

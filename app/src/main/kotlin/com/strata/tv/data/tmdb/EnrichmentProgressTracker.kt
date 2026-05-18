@@ -30,6 +30,13 @@ class EnrichmentProgressTracker @Inject constructor() {
          * Once true, stays true — there's no resetting after a sync.
          */
         val enrichmentHasStarted: Boolean = false,
+        /**
+         * Most recent enrichment failure message, or `null` when
+         * everything is fine.  Surfaced in the sync progress screen
+         * and in the sidebar ring tooltip so users see "TMDB enrichment
+         * failed: …" instead of an unchanging spinner (issue #47).
+         */
+        val errorMessage: String? = null,
     ) {
         val fraction: Float
             get() = if (total > 0) (processed.toFloat() / total).coerceIn(0f, 1f) else 0f
@@ -115,6 +122,16 @@ class EnrichmentProgressTracker @Inject constructor() {
      */
     fun setLabel(label: String) {
         _progress.update { it.copy(label = label, isRunning = true) }
+    }
+
+    /**
+     * Record an enrichment failure so the UI can show "enrichment
+     * failed: …" instead of leaving the user staring at a spinner.
+     * Called from [com.strata.tv.ui.home.HomeViewModel] when one of the
+     * `enrichBatch()` calls throws.
+     */
+    fun markError(message: String) {
+        _progress.update { it.copy(errorMessage = message, isRunning = false) }
     }
 
     /** Full reset. */

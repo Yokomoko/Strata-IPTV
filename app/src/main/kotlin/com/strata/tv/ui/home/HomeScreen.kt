@@ -186,6 +186,7 @@ fun HomeScreen(
                                             resumePositionMs = item.resumePositionMs,
                                             contentType = item.contentType,
                                             artworkUrl = item.artworkUrl,
+                                            contentId = item.contentId,
                                         ),
                                     )
                                 }

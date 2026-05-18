@@ -144,6 +144,18 @@ class PlayerViewModel @Inject constructor(
     // Stream parameters — set once via [initialize].
     private var streamUrl: String = ""
     private var title: String = ""
+    /**
+     * Stable content-hash ID of the currently-playing item.  Used as
+     * the primary key for ContinueWatching / WatchHistory writes so
+     * two items with the same display title (e.g. two films called
+     * "Frankenstein") don't overwrite each other's resume position.
+     *
+     * Empty string means the caller didn't supply one — we fall back
+     * to writing `title` for legacy compatibility, but every new
+     * call site should pass the real `content_id` hash through
+     * [PlayerArgs] → [initialize].
+     */
+    private var contentId: String = ""
     private var isLive: Boolean = false
     private var resumePositionMs: Long = 0L
     private var contentType: String = ""
@@ -306,6 +318,7 @@ class PlayerViewModel @Inject constructor(
         resumePositionMs: Long,
         contentType: String,
         artworkUrl: String,
+        contentId: String = "",
         seriesTitle: String? = null,
         seasonNumber: Int? = null,
         episodeNumber: Int? = null,
@@ -319,6 +332,7 @@ class PlayerViewModel @Inject constructor(
 
         this.streamUrl = streamUrl
         this.title = title
+        this.contentId = contentId
         this.isLive = isLive
         this.resumePositionMs = resumePositionMs
         this.contentType = contentType
@@ -444,6 +458,7 @@ class PlayerViewModel @Inject constructor(
             resumePositionMs = 0L,
             contentType = "live",
             artworkUrl = channel.logoUrl,
+            contentId = channel.contentId,
         )
 
         // Show channel overlay.
@@ -529,6 +544,7 @@ class PlayerViewModel @Inject constructor(
                 resumePositionMs = episode.resumePositionMs,
                 contentType = "show",
                 artworkUrl = artworkUrl,
+                contentId = episode.contentId,
                 seriesTitle = series,
                 seasonNumber = episode.seasonNumber,
                 episodeNumber = episode.episodeNumber,
@@ -593,6 +609,7 @@ class PlayerViewModel @Inject constructor(
                     resumePositionMs = 0L,
                     contentType = "show",
                     artworkUrl = artworkUrl,
+                    contentId = next.contentId,
                     seriesTitle = series,
                     seasonNumber = next.seasonNumber,
                     episodeNumber = next.episodeNumber,
@@ -766,7 +783,11 @@ class PlayerViewModel @Inject constructor(
         if (posMs < 5_000) return
         viewModelScope.launch {
             cwDao.upsertSilent(
-                contentId = title,
+                // Real content_id hash where available; fall back to
+                // title only when an old caller path hasn't been
+                // upgraded yet.  See [contentId] kdoc for why title
+                // is a poor primary key.
+                contentId = contentId.ifBlank { title },
                 contentType = if (isLive) "live" else contentType,
                 streamUrl = streamUrl,
                 artworkUrl = artworkUrl,
@@ -790,7 +811,7 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             cwDao.upsert(
                 ContinueWatchingEntity(
-                    contentId = title,
+                    contentId = contentId.ifBlank { title },
                     contentType = if (isLive) "live" else contentType,
                     streamUrl = streamUrl,
                     artworkUrl = artworkUrl,
@@ -827,7 +848,7 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             historyDao.insert(
                 WatchHistoryEntity(
-                    contentId = title,
+                    contentId = contentId.ifBlank { title },
                     contentType = if (isLive) "live" else contentType,
                     durationWatchedMs = posMs,
                 ),

@@ -274,6 +274,7 @@ private fun MovieDetailContent(
                                 resumePositionMs = movie.resumePositionMs,
                                 contentType = "movie",
                                 artworkUrl = movie.posterUrl,
+                                contentId = movie.contentId,
                             ),
                         )
                     },

@@ -352,6 +352,7 @@ private fun ResultsList(state: SearchUiState.Results, onNavigate: AppNavState?) 
                                 isLive = true,
                                 contentType = "live",
                                 artworkUrl = result.artworkUrl,
+                                contentId = result.contentId,
                             ),
                         )
                     },

@@ -149,6 +149,17 @@ fun SyncProgressScreen(
                 )
                 Spacer(Modifier.height(12.dp))
             }
+            // Surface enrichment failures the same way (issue #47).
+            // Without this, a failed TMDB pass leaves the user staring
+            // at a frozen ring with no clue what went wrong.
+            enrichment.errorMessage?.let { message ->
+                Text(
+                    text = "TMDB enrichment failed: $message",
+                    color = StrataColors.StatusLive,
+                    fontSize = 13.sp,
+                )
+                Spacer(Modifier.height(12.dp))
+            }
 
             Surface(
                 onClick = onSkipToBackground,

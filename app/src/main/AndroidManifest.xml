@@ -19,6 +19,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:banner="@drawable/banner"
         android:theme="@style/Theme.StrataTV"
+        android:usesCleartextTraffic="true"
         tools:targetApi="31">
 
         <activity

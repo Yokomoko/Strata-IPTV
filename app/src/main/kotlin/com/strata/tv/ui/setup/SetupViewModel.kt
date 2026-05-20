@@ -7,6 +7,7 @@ import com.strata.tv.data.settings.BuiltInProviders
 import com.strata.tv.data.settings.ProviderConfig
 import com.strata.tv.data.settings.SettingsRepository
 import com.strata.tv.data.settings.XtreamApi
+import com.strata.tv.data.xtream.SkyGlassLicenseClient
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,6 +28,7 @@ import javax.inject.Inject
 class SetupViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val xtreamApi: XtreamApi,
+    private val skyGlassLicense: SkyGlassLicenseClient,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SetupState())
@@ -98,24 +100,92 @@ class SetupViewModel @Inject constructor(
      */
     fun submitCredentials() {
         val s = _state.value
-        val config = s.toProviderConfig()
-        if (!config.isConfigured) {
-            _state.update { it.copy(errorMessage = "Please fill in all fields.") }
+        val isSkyGlass = s.providerId == "skyglass"
+
+        // SkyGlass has no baked host — we resolve it via the license
+        // server during the test step.  For all other providers we
+        // need the user to have filled in everything they're going to.
+        if (!isSkyGlass) {
+            val config = s.toProviderConfig()
+            if (!config.isConfigured) {
+                _state.update { it.copy(errorMessage = "Please fill in all fields.") }
+                return
+            }
+        } else if (s.username.isBlank() || s.password.isBlank()) {
+            _state.update { it.copy(errorMessage = "Please fill in username + password.") }
             return
         }
+
         viewModelScope.launch {
             _state.update { it.copy(testing = true, errorMessage = null) }
-            val ok = when (config.providerId) {
-                "custom_m3u" -> true // we can't validate without downloading
-                else -> xtreamApi.testConnection(config)
-            }
-            if (ok) {
-                _state.update { it.copy(testing = false, step = Step.Filters) }
-            } else {
-                _state.update { it.copy(
-                    testing = false,
-                    errorMessage = "Could not authenticate. Check host, username, password.",
-                ) }
+            try {
+                if (isSkyGlass) {
+                    // Auto-detect: hit the SkyGlass license server,
+                    // fetch the portal list, probe each with the
+                    // user's credentials, save the one that works.
+                    val portals = runCatching { skyGlassLicense.fetchPortals() }
+                        .getOrElse { e ->
+                            _state.update {
+                                it.copy(
+                                    testing = false,
+                                    errorMessage = "Couldn't reach the SkyGlass " +
+                                        "license server (${e.message}).  Try again " +
+                                        "or use Custom Xtream with the host your " +
+                                        "provider gave you.",
+                                )
+                            }
+                            return@launch
+                        }
+                    val matched = skyGlassLicense.probePortals(
+                        portals = portals,
+                        username = s.username,
+                        password = s.password,
+                    )
+                    if (matched == null) {
+                        _state.update {
+                            it.copy(
+                                testing = false,
+                                errorMessage = "Username + password didn't match any " +
+                                    "SkyGlass panel (${portals.joinToString { p -> p.name }}). " +
+                                    "Double-check, or use Custom Xtream.",
+                            )
+                        }
+                        return@launch
+                    }
+                    // Save the matched host back to wizard state so the
+                    // Filters step picks it up and the saved config
+                    // points at the right portal.
+                    _state.update {
+                        it.copy(
+                            providerHost = matched.url,
+                            testing = false,
+                            step = Step.Filters,
+                            errorMessage = null,
+                        )
+                    }
+                    return@launch
+                }
+                val ok = when (s.providerId) {
+                    "custom_m3u" -> true // can't validate without downloading
+                    else -> xtreamApi.testConnection(s.toProviderConfig())
+                }
+                if (ok) {
+                    _state.update { it.copy(testing = false, step = Step.Filters) }
+                } else {
+                    _state.update {
+                        it.copy(
+                            testing = false,
+                            errorMessage = "Could not authenticate. Check host, username, password.",
+                        )
+                    }
+                }
+            } catch (t: Throwable) {
+                _state.update {
+                    it.copy(
+                        testing = false,
+                        errorMessage = "Connection test failed: ${t.message}",
+                    )
+                }
             }
         }
     }

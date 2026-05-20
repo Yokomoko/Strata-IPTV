@@ -131,19 +131,47 @@ object BuiltInProviders {
         ),
         Entry(
             id = "skyglass",
-            displayName = "SkyGlass",
-            // skyglass.vip:8080 is the default the SkyGlass license
-            // server hands back for most plans.  The proper fix is to
-            // query that license server directly (see TODO in
-            // SkyGlassLicenseClient — the response uses a custom
-            // encryption that we haven't fully reverse-engineered yet),
-            // but in the meantime the default works for the common
-            // plans and Advanced lets users override it.
-            host = "http://skyglass.vip:8080",
-            description = "Xtream Codes. The same username and password " +
-                "you use in the SkyGlass app — Strata will use the standard " +
-                "panel URL.  Expand Advanced if your provider gave you a " +
-                "different host.",
+            displayName = "SkyGlass (auto-detect)",
+            // No baked default — [SkyGlassLicenseClient] hits the
+            // SkyGlass app's own license server at test-and-continue
+            // time, decrypts the portal list (B1G / B1G 2 / Ultimate /
+            // GTV) and picks whichever portal accepts the user's
+            // username + password.  The user never types a URL.
+            //
+            // The individual B1G / Ultimate / GTV presets below are
+            // shortcuts for users who already know which panel their
+            // subscription is on — they skip the license-server hop.
+            host = "",
+            description = "Don't know which panel? Just enter the same " +
+                "username and password as the SkyGlass app — Strata " +
+                "tries B1G, B1G 2, Ultimate and GTV automatically.",
+        ),
+        // Hosts below were extracted from the SkyGlass license server's
+        // `portal` response (see SkyGlassLicenseClient).  They're the
+        // direct Xtream Codes endpoints for each panel.
+        Entry(
+            id = "b1g",
+            displayName = "B1G",
+            host = "http://rev-tv.com",
+            description = "B1G Xtream Codes panel served via SkyGlass.",
+        ),
+        Entry(
+            id = "b1g2",
+            displayName = "B1G 2",
+            host = "http://msresel.one",
+            description = "B1G 2 Xtream Codes panel served via SkyGlass.",
+        ),
+        Entry(
+            id = "ultimate",
+            displayName = "Ultimate",
+            host = "http://sharkvpn.eltanke.xyz",
+            description = "Ultimate Xtream Codes panel served via SkyGlass.",
+        ),
+        Entry(
+            id = "gtv",
+            displayName = "GTV",
+            host = "http://glass-premium.site",
+            description = "GTV Xtream Codes panel served via SkyGlass.",
         ),
         Entry(
             id = "custom_xtream",

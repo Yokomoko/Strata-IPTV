@@ -232,8 +232,10 @@ private fun CredentialsStep(state: SetupState, viewModel: SetupViewModel) {
             )
         }
         isPresetXtream -> {
-            // Username + password first — host is pre-filled, hidden
-            // behind Advanced.
+            // Username + password — preset hosts are either baked in
+            // or resolved automatically (SkyGlass via its license
+            // server, see [com.strata.tv.data.xtream.SkyGlassLicenseClient]),
+            // so the user never has to touch the URL.
             FieldRow(
                 label = "Username",
                 value = state.username,
@@ -254,7 +256,7 @@ private fun CredentialsStep(state: SetupState, viewModel: SetupViewModel) {
             Spacer(Modifier.height(16.dp))
             AdvancedRow(
                 expanded = advancedOpen,
-                hostPreview = state.providerHost,
+                hostPreview = state.providerHost.ifBlank { "auto" },
                 onToggle = { advancedOpen = !advancedOpen },
             )
             if (advancedOpen) {

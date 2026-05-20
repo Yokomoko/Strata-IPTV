@@ -1,4 +1,4 @@
-# Strata TV
+# Strata IPTV
 
 An Android TV / Fire Stick IPTV app that doesn't look like it was built in 2012.
 
@@ -14,10 +14,11 @@ It also stays out of your way about credentials. Your provider URL, username and
 
 ## What you get
 
-* **Provider setup wizard** with built-in entries for MyBunny.TV and GTV/SkyGlass, plus generic Xtream Codes and raw M3U options for everything else. Subscription expiry pulled from the provider where available.
-* **Region and language filters** picked during onboarding so the first sync is already focused on UK and English content (or whatever you want).
+* **Provider setup wizard** with built-in entries for MyBunny.TV and SkyGlass (XCIPTV-based), plus generic Xtream Codes and raw M3U options for everything else. Subscription expiry pulled from the provider where available.
+* **Region, language, genre and year filters** picked during onboarding and editable from Settings any time. Changing a filter retroactively re-evaluates the library so newly-excluded items disappear and newly-included items come back, with a fresh enrichment pass kicked off to fill in any missing posters.
+* **Ignore-this-thing context menu** on every movie and show card — long-press for "Hide this film", "Ignore genre: X" or "Ignore language: Japanese". The library updates immediately.
 * **Sky Glass style home** with hero rotation, Continue Watching, Watchlist, New Episodes and genre rails.
-* **TMDB enrichment** for movies and series. Posters, backdrops, plots, cast, ratings, trailers.
+* **TMDB enrichment** for movies and series. Posters, backdrops, plots, cast, ratings, trailers (open in the YouTube app for the cleanest playback).
 * **Smart Continue Watching** that collapses TV show episodes into one entry per series, remembers what you were halfway through, and offers the next episode when you're done.
 * **TV Guide** for live channels with proper XMLTV EPG support.
 * **Favourite channel zapping** during live TV with D-pad up and down.
@@ -37,9 +38,11 @@ If your provider is MyBunny.TV, just pick it from the wizard and enter your user
 
 ### From a release
 
-1. Grab the latest `strata-tv-<version>.apk` from the [Releases page](../../releases).
-2. Sideload it onto your Fire Stick or Android TV. The easiest way on Fire Stick is to install the Downloader app from the Amazon Appstore, then point it at the release asset URL.
+1. Grab the latest APK from the [Releases page](../../releases) — or point the Fire Stick **Downloader** app straight at the evergreen URL `https://github.com/Yokomoko/Strata-IPTV/releases/latest/download/strata-iptv.apk` (always serves the newest release).
+2. Sideload it onto your Fire Stick or Android TV. The easiest way on Fire Stick is to install the Downloader app from the Amazon Appstore, then paste the URL above.
 3. Launch Strata and follow the wizard.
+
+Updates work without losing your library or settings — every release is signed with the same key so `Downloader` (or `adb install -r`) overwrites the previous version in place.
 
 ### A note for Fire Stick users about the apps tile
 
@@ -77,26 +80,38 @@ Install via adb:
 adb install -r app/build/outputs/apk/release/app-release.apk
 ```
 
-The release build uses debug signing so you can sideload it without setting up a keystore. If you want to ship a signed release for the Amazon Appstore or Google Play, swap in your own signing config in `app/build.gradle.kts`.
+Release builds use a stable release keystore (`app/release.jks`) that's gitignored — generate your own with `keytool -genkeypair -keystore app/release.jks -alias strata -keyalg RSA -keysize 2048 -validity 10000` and add the password to `local.properties`:
+
+```
+release.keystore.password=your-password
+release.key.alias=strata
+release.key.password=your-password
+```
+
+Without those entries the build falls back to the Android debug keystore so a fresh checkout still works.
 
 ## Configuration
 
 Strata supports two ways to connect to your IPTV provider:
 
-1. **Xtream Codes** (recommended): enter host, username and password. Strata uses the standard `get.php` endpoint for the playlist and `player_api.php` for subscription info. MyBunny.TV is preset, any other Xtream provider works under "Custom Xtream".
+1. **Xtream Codes** (recommended): enter host, username and password. Strata tries the standard `get.php` M3U endpoint first and falls back to `player_api.php` JSON if the provider doesn't serve M3U (MyBunny.TV is the canonical example — its `get.php` only returns an auth blob, so we go straight to the JSON action API). MyBunny.TV and SkyGlass are preset; any other Xtream provider works under "Custom Xtream".
 2. **Raw M3U URL**: paste a URL that already has credentials baked in. Subscription info isn't available because there's no API to query.
+
+For SkyGlass specifically: the IPTV host is actually issued per-customer by a license server, so the preset doesn't pin one — enter whatever your provider gave you (often `http://skyglass.vip:8080`).
 
 You can change provider at any time from Settings without losing your watchlist, continue watching state or favourites. Those are keyed off stable content hashes derived from the title, group and stream URL, so the same content keeps the same ID across re-syncs.
 
 ## Filters
 
-The first-run wizard asks for region and language preferences. By default Strata keeps UK and English content and drops the rest. You can change the filters at any time from Settings. The three filter dimensions are:
+The first-run wizard asks for region and language preferences. By default Strata keeps UK and English content released since 1970 and drops the rest. You can change the filters at any time from Settings. The dimensions are:
 
-* **Region**: country prefix matched against the M3U `group-title` (e.g. "UK | Entertainment").
-* **Categories**: keyword exclusions for genre groups. Default excludes adult and religious categories. Tick or untick each one.
-* **Languages**: TMDB `original_language` whitelist applied to movies and series during enrichment. Default is English.
+* **Region**: country prefix matched against the M3U `group-title` (e.g. "UK | Entertainment"). Applied at sync time.
+* **Categories**: keyword exclusions for genre groups. Default excludes adult and religious categories. Tick or untick each one. Applied at sync time.
+* **Languages**: TMDB `original_language` whitelist applied to movies and series during enrichment. Default is English plus "Unknown" (so unenriched titles aren't pre-hidden).
+* **Minimum year**: drops films and shows older than the year you pick (defaults to 1970, options run 1940→2020 plus "No minimum").
+* **Per-item ignores**: long-press any card for "Hide this film/show", "Ignore genre: X" or "Ignore language: Y" — handy when one row sneaks through.
 
-Filters apply on the next sync. Use the "Refresh library now" button in Settings to apply changes immediately.
+Changing a language, genre or year filter retroactively re-evaluates every enriched movie and series, so items newly excluded disappear and items newly included come back. A fresh enrichment pass kicks off in the background to populate posters on anything that just became visible.
 
 ## Tests
 
@@ -133,6 +148,16 @@ This is a personal project I use every day on my own Fire Stick. It's good enoug
 ## Support
 
 If Strata is useful to you and you want to help me keep working on it, [GitHub Sponsors](https://github.com/sponsors/Yokomoko) is the easiest way. Even a few quid a month keeps me motivated to ship features rather than just fix my own bugs.
+
+## Disclaimer
+
+Strata IPTV is a **client application**. It doesn't host, stream, broadcast, transmit, sell or resell any media content. It plays whatever IPTV provider the user configures it with — exactly the same as VLC, MPV or any other media player — and connects only to the URL the user enters on first launch. No content is bundled with the app.
+
+The project is not affiliated with, endorsed by, or sponsored by any IPTV service, provider, channel, broadcaster, studio, or rights holder. References to provider names (MyBunny, SkyGlass, etc.) describe **technical compatibility** with the public APIs those providers expose — they do not imply any commercial or legal relationship.
+
+Users are responsible for ensuring that the content they stream through Strata IPTV is legal in their jurisdiction and that they have the necessary subscriptions, licenses or rights from the actual content provider. The maintainers don't condone piracy and don't provide playlists, credentials, decoders or any way to access unlicensed content.
+
+If you are a rights holder and believe a specific URL or stream the app is being used to play infringes your rights, that's an issue with the IPTV provider hosting the stream — not with Strata. We do not have the ability to block specific streams; users connect to providers directly.
 
 ## License
 

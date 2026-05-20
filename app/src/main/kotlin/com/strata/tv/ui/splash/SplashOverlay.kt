@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
@@ -49,25 +50,33 @@ fun SplashOverlay(
         modifier = Modifier
             .fillMaxSize()
             .background(StrataColors.SurfaceVoid),
-        contentAlignment = Alignment.Center,
+        contentAlignment = Alignment.BottomCenter,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Image(
-                painter = painterResource(R.drawable.banner),
-                contentDescription = "Strata",
-                contentScale = ContentScale.FillWidth,
-                modifier = Modifier.width(260.dp),
-            )
+        // Full-bleed Strata brand background (same SVG used on the
+        // first-run sync screen).  The wordmark + TV icon are baked
+        // into the image, so the foreground drops the tiny banner
+        // and just shows the "Loading\u2026" status + progress arc.
+        Image(
+            painter = painterResource(R.drawable.splash_bg),
+            contentDescription = "Strata",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
 
-            Spacer(Modifier.height(16.dp))
-
+        // Status text + progress arc sit hard at the bottom of the
+        // screen so they don't fight the centered logo in the
+        // background.
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(bottom = 24.dp),
+        ) {
             Text(
                 text = "Loading your library\u2026",
-                color = StrataColors.TextTertiary,
+                color = StrataColors.TextSecondary,
                 fontSize = 14.sp,
             )
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(20.dp))
 
             if (enrichmentRunning && enrichmentFraction > 0f) {
                 // Determinate arc showing enrichment progress.

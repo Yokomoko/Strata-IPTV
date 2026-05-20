@@ -132,9 +132,18 @@ object BuiltInProviders {
         Entry(
             id = "skyglass",
             displayName = "SkyGlass",
+            // skyglass.vip:8080 is the default the SkyGlass license
+            // server hands back for most plans.  The proper fix is to
+            // query that license server directly (see TODO in
+            // SkyGlassLicenseClient — the response uses a custom
+            // encryption that we haven't fully reverse-engineered yet),
+            // but in the meantime the default works for the common
+            // plans and Advanced lets users override it.
             host = "http://skyglass.vip:8080",
-            description = "Xtream Codes. The same username and password you use " +
-                "in the SkyGlass wrapper app.",
+            description = "Xtream Codes. The same username and password " +
+                "you use in the SkyGlass app — Strata will use the standard " +
+                "panel URL.  Expand Advanced if your provider gave you a " +
+                "different host.",
         ),
         Entry(
             id = "custom_xtream",

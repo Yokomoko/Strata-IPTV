@@ -147,19 +147,26 @@ class SkyGlassLicenseClient @Inject constructor(
         for (portal in portals) {
             val host = portal.url.trimEnd('/')
             val authUrl = "$host/player_api.php?username=$username&password=$password"
+            // Send the SAME headers the SkyGlass app's Volley/HurlStack
+            // stack sends — an empty User-Agent (Android's default
+            // HttpURLConnection injects "Java/<version>") + no extras.
+            // OkHttp's default `okhttp/4.x` UA was tripping the portals'
+            // anti-bot filter and getting 512/513 back.
             val request = Request.Builder()
                 .url(authUrl)
-                .header("User-Agent", USER_AGENT)
+                .removeHeader("User-Agent")  // let OkHttp not set one
                 .build()
             try {
                 http.newCall(request).execute().use { resp ->
-                    if (!resp.isSuccessful) return@use
                     val body = resp.body?.string().orEmpty()
-                    // The "auth: 1" field on the no-action response is
-                    // the canonical "your creds are good" signal for
-                    // Xtream Codes panels.
+                    Log.i(
+                        TAG,
+                        "Probe '${portal.name}' (${portal.url}) HTTP ${resp.code} " +
+                            "body=${body.length}B preview=${body.take(120)}",
+                    )
+                    if (!resp.isSuccessful) return@use
                     if (body.contains("\"auth\":1") || body.contains("\"auth\": 1")) {
-                        Log.i(TAG, "Portal '${portal.name}' (${portal.url}) accepted creds")
+                        Log.i(TAG, "Portal '${portal.name}' accepted creds")
                         return@withContext portal
                     }
                 }

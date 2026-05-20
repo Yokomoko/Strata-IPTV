@@ -7,6 +7,7 @@ import com.strata.tv.data.settings.BuiltInProviders
 import com.strata.tv.data.settings.ProviderConfig
 import com.strata.tv.data.settings.SettingsRepository
 import com.strata.tv.data.settings.XtreamApi
+import com.strata.tv.data.xtream.Me2uLicenseClient
 import com.strata.tv.data.xtream.SkyGlassLicenseClient
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +30,7 @@ class SetupViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val xtreamApi: XtreamApi,
     private val skyGlassLicense: SkyGlassLicenseClient,
+    private val me2uLicense: Me2uLicenseClient,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SetupState())
@@ -101,11 +103,13 @@ class SetupViewModel @Inject constructor(
     fun submitCredentials() {
         val s = _state.value
         val isSkyGlass = s.providerId == "skyglass"
+        val isMe2u    = s.providerId == "me2u"
+        val isAutoDetect = isSkyGlass || isMe2u
 
-        // SkyGlass has no baked host — we resolve it via the license
-        // server during the test step.  For all other providers we
-        // need the user to have filled in everything they're going to.
-        if (!isSkyGlass) {
+        // Auto-detect providers have no baked host — it's resolved via
+        // each provider's own license server during the test step.
+        // All other providers need the user to have filled everything in.
+        if (!isAutoDetect) {
             val config = s.toProviderConfig()
             if (!config.isConfigured) {
                 _state.update { it.copy(errorMessage = "Please fill in all fields.") }
@@ -152,9 +156,48 @@ class SetupViewModel @Inject constructor(
                         }
                         return@launch
                     }
-                    // Save the matched host back to wizard state so the
-                    // Filters step picks it up and the saved config
-                    // points at the right portal.
+                    _state.update {
+                        it.copy(
+                            providerHost = matched.url,
+                            testing = false,
+                            step = Step.Filters,
+                            errorMessage = null,
+                        )
+                    }
+                    return@launch
+                }
+
+                if (isMe2u) {
+                    // Auto-detect: hit the Me2u license server,
+                    // decrypt the AES-128-CBC portal list, probe each.
+                    val portals = runCatching { me2uLicense.fetchPortals() }
+                        .getOrElse { e ->
+                            _state.update {
+                                it.copy(
+                                    testing = false,
+                                    errorMessage = "Couldn't reach the Me2u license " +
+                                        "server (${e.message}).  Try again or use " +
+                                        "Custom Xtream with the host your provider gave you.",
+                                )
+                            }
+                            return@launch
+                        }
+                    val matched = me2uLicense.probePortals(
+                        portals = portals,
+                        username = s.username,
+                        password = s.password,
+                    )
+                    if (matched == null) {
+                        _state.update {
+                            it.copy(
+                                testing = false,
+                                errorMessage = "Username + password didn't match any " +
+                                    "Me2u panel (${portals.joinToString { p -> p.name }}). " +
+                                    "Double-check, or use Custom Xtream.",
+                            )
+                        }
+                        return@launch
+                    }
                     _state.update {
                         it.copy(
                             providerHost = matched.url,

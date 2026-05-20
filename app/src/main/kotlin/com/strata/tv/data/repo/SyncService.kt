@@ -65,6 +65,7 @@ class SyncService @Inject constructor(
     private val progressTracker: com.strata.tv.data.tmdb.EnrichmentProgressTracker,
     private val settingsRepo: SettingsRepository,
     private val xtreamJson: XtreamJsonClient,
+    private val libraryFilter: LibraryFilterRepository,
 ) {
 
     sealed interface Progress {
@@ -260,6 +261,11 @@ class SyncService @Inject constructor(
             persistMovies(movies, sourceId, playlistUrl)
             persistShows(episodes, sourceId, playlistUrl)
             persistSeriesCatalogue(seriesMetaToPersist)
+
+            // Re-apply language / genre / year filters after every sync.
+            // @Upsert resets hidden=false on every row, so already-enriched
+            // foreign content would reappear without this call.
+            libraryFilter.recomputeHiddenFlags()
 
             _progress.value = Progress.Done(
                 totalParsed = live.size + movies.size + episodes.size,

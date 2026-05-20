@@ -360,6 +360,25 @@ class PlayerViewModel @Inject constructor(
         if (initialized && this.streamUrl == streamUrl) return
 
         val firstTime = !initialized
+        val urlChanged = initialized && this.streamUrl != streamUrl
+
+        // Force-release the previous stream before swapping in the new
+        // one.  Without this, channel-switch (D-pad Up/Down on the
+        // guide) and next-episode autoplay leave the old HTTP/MPEG-TS
+        // socket lingering long enough that single-connection IPTV
+        // plans see two connections at once and reject the new stream
+        // with "All slots are currently in use".
+        //
+        // The teardown must happen BEFORE the new media item is set
+        // because ExoPlayer would otherwise let the old source linger
+        // in the background until GC kicks in.  stop() + clearMediaItems
+        // synchronously closes the underlying datasource.
+        if (urlChanged) {
+            runCatching {
+                player.stop()
+                player.clearMediaItems()
+            }
+        }
 
         this.streamUrl = streamUrl
         this.title = title
@@ -748,7 +767,15 @@ class PlayerViewModel @Inject constructor(
             )
         }
 
-        // Switch the ExoPlayer media item.
+        // Switch the ExoPlayer media item.  Tear down the previous
+        // stream first — same reason as the urlChanged branch in
+        // [initialize]: single-connection IPTV plans see overlap if
+        // the old socket isn't explicitly closed before the new one
+        // opens.
+        runCatching {
+            player.stop()
+            player.clearMediaItems()
+        }
         player.setMediaItem(MediaItem.fromUri(target.streamUrl))
         player.playWhenReady = true
         player.prepare()

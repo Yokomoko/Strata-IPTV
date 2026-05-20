@@ -660,11 +660,31 @@ class PlayerViewModel @Inject constructor(
     }
 
     /**
-     * Full save + watch history entry.  Called on exit by the composable.
+     * Full save + watch history entry + stream teardown.  Called by the
+     * composable when the user exits the player.
+     *
+     * Stream teardown is critical for IPTV providers that limit
+     * simultaneous connections — without it, the OkHttp/MPEG-TS
+     * connection from the previous stream stays open and the provider
+     * keeps counting it as an active slot.  The user then sees
+     * "Your plan allows 1 simultaneous connection. All slots in use"
+     * on the next attempt.
+     *
+     * `clearMediaItems()` drops the URL and tears down the underlying
+     * HTTP connection in the next event-loop tick.  We also call
+     * `stop()` to make sure the loader thread isn't mid-fetch when
+     * the connection is closed.  Clearing `initialized` means the
+     * next [initialize] call will treat the player as fresh.
      */
     fun saveOnExit() {
         saveFullContinueWatching()
         insertWatchHistory()
+        runCatching {
+            player.stop()
+            player.clearMediaItems()
+        }
+        initialized = false
+        resumeApplied = false
     }
 
     // ── Fav mode (#11) ──────────────────────────────────────────────

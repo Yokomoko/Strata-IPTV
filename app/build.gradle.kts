@@ -45,8 +45,8 @@ android {
         // Fire Stick 4K Max is API 28 (Fire OS 7) or API 30 (Fire OS 8).
         minSdk = 21
         targetSdk = 34
-        versionCode = 35
-        versionName = "0.3.19"
+        versionCode = 36
+        versionName = "0.3.20"
 
         // Custom JUnit runner that swaps the Application class for
         // [HiltTestApplication] so @AndroidEntryPoint / @HiltViewModel
@@ -64,6 +64,55 @@ android {
         }
     }
 
+    // Stable release signing config.  Resolves keystore + passwords
+    // from (in order):
+    //   1. Environment variables (set by GitHub Actions from secrets).
+    //   2. local.properties (developer machine — gitignored).
+    //   3. Falls back to NOT configured, in which case the release
+    //      buildType uses the auto-generated debug keystore — same as
+    //      before this was set up.
+    //
+    // Keeping the same keystore across all release builds (local +
+    // CI) means `adb install -r` works without forcing the user to
+    // uninstall + lose their library every time a new APK ships.
+    val releaseKeystore: File? = run {
+        val f = rootProject.file("app/release.jks")
+        if (f.exists()) f else null
+    }
+    val releaseKeystorePassword: String? =
+        System.getenv("RELEASE_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }
+            ?: Properties().also { props ->
+                rootProject.file("local.properties").takeIf { it.exists() }
+                    ?.inputStream()?.use(props::load)
+            }.getProperty("release.keystore.password")
+    val releaseKeyAlias: String? =
+        System.getenv("RELEASE_KEY_ALIAS")?.takeIf { it.isNotBlank() }
+            ?: Properties().also { props ->
+                rootProject.file("local.properties").takeIf { it.exists() }
+                    ?.inputStream()?.use(props::load)
+            }.getProperty("release.key.alias")
+            ?: "strata"
+    val releaseKeyPassword: String? =
+        System.getenv("RELEASE_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
+            ?: Properties().also { props ->
+                rootProject.file("local.properties").takeIf { it.exists() }
+                    ?.inputStream()?.use(props::load)
+            }.getProperty("release.key.password")
+    val releaseSigningConfigured = releaseKeystore != null &&
+        !releaseKeystorePassword.isNullOrBlank() &&
+        !releaseKeyPassword.isNullOrBlank()
+
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -72,10 +121,14 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            // Use the debug signing config for sideloads.  The user can
-            // sign with a release keystore later if they ever publish to
-            // the Amazon Appstore.
-            signingConfig = signingConfigs.getByName("debug")
+            // Prefer the stable release keystore.  If neither env vars
+            // nor local.properties have been set up, fall through to
+            // the debug keystore so a fresh checkout still builds.
+            signingConfig = if (releaseSigningConfigured) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

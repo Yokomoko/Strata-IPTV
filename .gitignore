@@ -28,3 +28,7 @@ hs_err_*.log
 .kotlin/
 replay_pid*.log
 gradle.zip
+
+# Release signing key (kept locally + in GitHub secrets, never committed)
+release.jks
+app/release.jks

@@ -61,11 +61,27 @@ jobs:
           echo "Resolved tag: ${TAG_REF}"
           echo "Resolved version: ${VERSION}"
 
+      - name: Decode release signing keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          # Recreate app/release.jks from the base64-encoded secret so
+          # build.gradle.kts can pick it up via rootProject.file(...).
+          # Same key is used locally on the maintainer's machine, so
+          # CI-published APKs share a signature with locally-built ones
+          # and adb install -r works without an uninstall.
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > app/release.jks
+          ls -la app/release.jks
+
       - name: Build release APK
         env:
           # TMDB API key set as a repository secret.  build.gradle.kts
           # reads this and injects it into BuildConfig.TMDB_API_KEY.
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          # Release signing — paired with the decode step above.
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
       - name: Rename APK with version + stable alias

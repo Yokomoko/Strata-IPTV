@@ -19,6 +19,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -107,6 +109,14 @@ private fun MovieDetailContent(
 ) {
     val scrollState = rememberScrollState()
     var showTrailer by remember { mutableStateOf(false) }
+
+    // Auto-focus the Play button when the detail screen renders so the
+    // user can hit OK without pressing Down first.  Keyed on the movie
+    // id so navigating between detail screens re-requests focus.
+    val playFocus = remember { FocusRequester() }
+    LaunchedEffect(movie.contentId) {
+        runCatching { playFocus.requestFocus() }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // -- Full-bleed backdrop -----------------------------------------
@@ -283,7 +293,9 @@ private fun MovieDetailContent(
                         containerColor = StrataColors.AccentPrimary,
                         focusedContainerColor = StrataColors.AccentPrimaryBright,
                     ),
-                    modifier = Modifier.height(48.dp),
+                    modifier = Modifier
+                        .height(48.dp)
+                        .focusRequester(playFocus),
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 28.dp, vertical = 12.dp),

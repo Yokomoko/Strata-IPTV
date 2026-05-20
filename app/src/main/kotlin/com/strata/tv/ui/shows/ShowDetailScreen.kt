@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -127,6 +129,14 @@ private fun ShowDetailContent(
     val activeSeason = if (seasons.containsKey(selectedSeason)) selectedSeason
     else seasons.keys.firstOrNull() ?: 1
     val episodes = seasons[activeSeason] ?: emptyList()
+
+    // Auto-focus the primary play button when the screen renders so
+    // the user doesn't have to press Down first.  Keyed on series id
+    // so navigating between shows re-requests focus.
+    val playFocus = remember { FocusRequester() }
+    LaunchedEffect(series.id) {
+        runCatching { playFocus.requestFocus() }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // -- Full-bleed backdrop -----------------------------------------
@@ -301,7 +311,9 @@ private fun ShowDetailContent(
                         containerColor = StrataColors.AccentPrimary,
                         focusedContainerColor = StrataColors.AccentPrimaryBright,
                     ),
-                    modifier = Modifier.height(48.dp),
+                    modifier = Modifier
+                        .height(48.dp)
+                        .focusRequester(playFocus),
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 28.dp, vertical = 12.dp),

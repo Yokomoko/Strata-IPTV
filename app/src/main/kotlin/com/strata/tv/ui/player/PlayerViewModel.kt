@@ -11,9 +11,12 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.LoadControl
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.strata.tv.data.db.ChannelDao
 import com.strata.tv.data.db.ContentDao
 import com.strata.tv.data.db.ContinueWatchingDao
@@ -100,8 +103,36 @@ class PlayerViewModel @Inject constructor(
         .setPrioritizeTimeOverSizeThresholds(true)
         .build()
 
+    /**
+     * HTTP datasource configured for IPTV streams.  Two important
+     * non-default flags:
+     *
+     *  1. **setAllowCrossProtocolRedirects(true)** — IPTV providers
+     *     routinely 302-redirect from the auth host (HTTPS) onto a CDN
+     *     edge (HTTP) or vice versa.  Without this, ExoPlayer throws
+     *     `Response code: 302` and playback fails.
+     *  2. **User-Agent set to a media-player string** — some Xtream
+     *     deployments rate-limit or 403 the default OkHttp UA.
+     *     Lavf/VLC-style UAs are widely accepted.
+     *
+     *  Connect / read timeouts bumped to 15 s — Fire Stick is often on
+     *  WiFi with variable latency and the default 8 s drops too many
+     *  legit channel switches.
+     */
+    private val httpDataSourceFactory: DefaultHttpDataSource.Factory =
+        DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setUserAgent("VLC/3.0.20 LibVLC/3.0.20")
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(15_000)
+
+    private val mediaSourceFactory: DefaultMediaSourceFactory =
+        DefaultMediaSourceFactory(application)
+            .setDataSourceFactory(DefaultDataSource.Factory(application, httpDataSourceFactory))
+
     val player: ExoPlayer = ExoPlayer.Builder(application)
         .setLoadControl(loadControl)
+        .setMediaSourceFactory(mediaSourceFactory)
         .build()
 
     // ── UI state ─────────────────────────────────────────────────────

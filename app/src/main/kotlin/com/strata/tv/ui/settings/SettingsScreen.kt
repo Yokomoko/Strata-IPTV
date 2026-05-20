@@ -227,6 +227,31 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(20.dp))
 
+        SectionHeader("Minimum year")
+        Card {
+            Column {
+                ListRow(
+                    headline = "Hide films + shows older than",
+                    supporting = when (settings.minimumYear) {
+                        0 -> "Showing every year"
+                        else -> "Currently ${settings.minimumYear} and newer"
+                    },
+                )
+                // Show each option as its own list row so a D-pad press
+                // immediately swaps the value (no dropdown overlay).
+                AppSettings.MINIMUM_YEAR_OPTIONS.forEach { year ->
+                    val label = if (year == 0) "No minimum" else year.toString()
+                    ListRow(
+                        headline = label,
+                        selected = year == settings.minimumYear,
+                        onClick = { viewModel.setMinimumYear(year) },
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(20.dp))
+
         SectionHeader("Playback")
         Card {
             ListRow(

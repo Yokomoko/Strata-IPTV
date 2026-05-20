@@ -267,6 +267,13 @@ data class ContinueWatchingEntity(
     @ColumnInfo(name = "series_title") val seriesTitle: String? = null,
     @ColumnInfo(name = "season_number") val seasonNumber: Int? = null,
     @ColumnInfo(name = "episode_number") val episodeNumber: Int? = null,
+    /**
+     * Human-readable title to show on the Continue Watching rail.
+     * Stored here because content_id is now a stable hash (issue #42)
+     * so we can't reverse it to a display name without joining the
+     * movies / series tables.  Populated by the player on save.
+     */
+    @ColumnInfo(name = "title", defaultValue = "") val title: String = "",
 )
 
 // ---------------------------------------------------------------------------

@@ -398,6 +398,13 @@ interface MovieDao {
     @Query("SELECT content_id, poster_url FROM movies WHERE content_id IN (:ids)")
     suspend fun postersForContentIds(ids: List<String>): List<ContentIdPoster>
 
+    /** Bulk hide/show used by the retroactive filter recompute. */
+    @Query("UPDATE movies SET hidden = 1 WHERE id IN (:ids)")
+    suspend fun hideByIds(ids: List<Int>)
+
+    @Query("UPDATE movies SET hidden = 0 WHERE id IN (:ids)")
+    suspend fun showByIds(ids: List<Int>)
+
     /**
      * Hide every movie whose comma-separated TMDB genre string contains
      * the given token (case-insensitive substring match).  Used by the
@@ -507,6 +514,12 @@ interface SeriesDao {
             "WHERE series_title COLLATE NOCASE IN (:titles)",
     )
     suspend fun postersForTitles(titles: List<String>): List<SeriesTitlePoster>
+
+    @Query("UPDATE series SET hidden = 1 WHERE id IN (:ids)")
+    suspend fun hideByIds(ids: List<Int>)
+
+    @Query("UPDATE series SET hidden = 0 WHERE id IN (:ids)")
+    suspend fun showByIds(ids: List<Int>)
 
     /** Set the hidden flag on a single series by title. */
     @Query("UPDATE series SET hidden = :hidden WHERE series_title = :title")
@@ -753,10 +766,10 @@ interface ContinueWatchingDao {
         INSERT OR REPLACE INTO continue_watching
             (content_id, content_type, stream_url, artwork_url,
              resume_position_ms, total_duration_ms, last_updated,
-             series_title, season_number, episode_number)
+             series_title, season_number, episode_number, title)
         VALUES (:contentId, :contentType, :streamUrl, :artworkUrl,
                 :positionMs, :totalMs, :lastUpdated,
-                :seriesTitle, :seasonNumber, :episodeNumber)
+                :seriesTitle, :seasonNumber, :episodeNumber, :title)
         """,
     )
     suspend fun upsertSilent(
@@ -770,6 +783,7 @@ interface ContinueWatchingDao {
         seriesTitle: String? = null,
         seasonNumber: Int? = null,
         episodeNumber: Int? = null,
+        title: String = "",
     )
 
     @Query("SELECT * FROM continue_watching ORDER BY last_updated DESC LIMIT :limit")

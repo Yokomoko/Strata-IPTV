@@ -175,13 +175,16 @@ fun HomeScreen(
                                 // still go straight to the player.
                                 if (item.contentType == "show") {
                                     onNavigate?.openShowDetail(
-                                        item.seriesTitle ?: item.contentId,
+                                        item.seriesTitle ?: item.title.ifBlank { item.contentId },
                                     )
                                 } else {
                                     onNavigate?.openPlayer(
                                         com.strata.tv.ui.nav.PlayerArgs(
                                             streamUrl = item.streamUrl,
-                                            title = item.contentId,
+                                            // Use the stored title, not the hash — only
+                                            // really matters for legacy rows where
+                                            // title is empty; new writes populate it.
+                                            title = item.title.ifBlank { item.contentId },
                                             isLive = item.contentType == "live",
                                             resumePositionMs = item.resumePositionMs,
                                             contentType = item.contentType,
@@ -777,11 +780,16 @@ private fun CwCard(
         (item.resumePositionMs.toFloat() / item.totalDurationMs * 100).toInt()
     } else 0
     val isLive = item.contentType == "live"
-    // Prefer the human-readable series title for show CW entries so the
-    // card doesn't display the opaque content-id hash.  Movies still
-    // get the contentId fallback \u2014 the watchlist already gives them a
-    // proper title elsewhere on screen.
-    val displayTitle = item.seriesTitle ?: item.contentId
+    // Preferred order: explicit title column (populated since v0.3.23,
+    // backfills as users play each item), then series title for shows,
+    // then a graceful "Continue Watching" placeholder.  We deliberately
+    // do NOT fall back to contentId \u2014 it's a SHA-1 hash that's useless
+    // as a display string.
+    val displayTitle = when {
+        item.title.isNotBlank() -> item.title
+        item.seriesTitle != null -> item.seriesTitle
+        else -> "Continue Watching"
+    }
     val subtitle = when {
         isLive -> "Resume"
         item.contentType == "show" && item.seasonNumber != null && item.episodeNumber != null ->

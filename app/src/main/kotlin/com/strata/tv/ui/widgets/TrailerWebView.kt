@@ -69,7 +69,28 @@ fun TrailerWebView(
         AndroidView(
             factory = {
                 webView.apply {
-                    loadUrl("https://www.youtube.com/embed/$youtubeKey?autoplay=1")
+                    // youtube-nocookie.com is YouTube's privacy-enhanced
+                    // embed domain — it bypasses some of the embed
+                    // restrictions that produce "Video unavailable" /
+                    // configuration errors on www.youtube.com/embed,
+                    // because it doesn't apply the same set of cookie /
+                    // referrer policies.
+                    //
+                    // Query params:
+                    //  - autoplay=1: start immediately, this is a TV.
+                    //  - playsinline=1: don't try to launch a fullscreen
+                    //    handler that doesn't exist on Fire Stick WebView.
+                    //  - rel=0: don't show "related videos" at the end —
+                    //    those are not navigable with a D-pad.
+                    //  - modestbranding=1: drop the big YT watermark.
+                    //  - controls=0: same reason as rel — non-touch.
+                    //  - iv_load_policy=3: no annotations / cards.
+                    //  - fs=0: no fullscreen button (we're already
+                    //    full-screen via the overlay).
+                    val url = "https://www.youtube-nocookie.com/embed/$youtubeKey" +
+                        "?autoplay=1&playsinline=1&rel=0&modestbranding=1" +
+                        "&controls=0&iv_load_policy=3&fs=0"
+                    loadUrl(url)
                 }
             },
             modifier = Modifier.fillMaxSize(),

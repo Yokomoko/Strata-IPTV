@@ -45,8 +45,8 @@ android {
         // Fire Stick 4K Max is API 28 (Fire OS 7) or API 30 (Fire OS 8).
         minSdk = 21
         targetSdk = 34
-        versionCode = 38
-        versionName = "0.3.22"
+        versionCode = 40
+        versionName = "0.3.24"
 
         // Custom JUnit runner that swaps the Application class for
         // [HiltTestApplication] so @AndroidEntryPoint / @HiltViewModel

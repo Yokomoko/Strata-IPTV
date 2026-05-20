@@ -43,6 +43,13 @@ data class AppSettings(
      * wants every other item in that language gone too.
      */
     val excludedLanguages: Set<String> = emptySet(),
+    /**
+     * Hide films and shows released before this year.  Default 1970 —
+     * most users want to skip the long tail of public-domain pre-colour
+     * content their provider dumps into the catalogue.  0 disables the
+     * filter entirely.
+     */
+    val minimumYear: Int = DEFAULT_MINIMUM_YEAR,
     val blacklistedContentIds: Set<String> = emptySet(),
     val stopStreamInMenus: Boolean = false,
 ) {
@@ -69,6 +76,11 @@ data class AppSettings(
          * the previously hard-coded `MovieEnrichmentService.WANTED_LANGUAGES`.
          */
         val DEFAULT_WANTED_LANGUAGES: Set<String> = setOf("en", "")
+
+        /** Year picker options surfaced in the wizard + settings. */
+        const val DEFAULT_MINIMUM_YEAR: Int = 1970
+        val MINIMUM_YEAR_OPTIONS: List<Int> =
+            listOf(0, 1940, 1950, 1960, 1970, 1980, 1990, 2000, 2010, 2020)
 
         /**
          * Countries we surface in the Settings + Wizard region picker.

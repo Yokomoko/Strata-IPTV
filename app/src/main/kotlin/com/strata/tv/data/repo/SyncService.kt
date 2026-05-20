@@ -225,6 +225,7 @@ class SyncService @Inject constructor(
                     host = host,
                     user = user,
                     pass = pass,
+                    userAgent = provider.apiUserAgent(),
                     onProgress = { status ->
                         _progress.value = Progress.Parsing(
                             parsed = live.size + movies.size + episodes.size,

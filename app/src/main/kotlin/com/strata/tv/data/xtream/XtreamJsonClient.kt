@@ -41,10 +41,9 @@ class XtreamJsonClient @Inject constructor(
 ) {
     companion object {
         private const val TAG = "XtreamJsonClient"
-        // Some providers sit behind Cloudflare; default OkHttp UA is fine
-        // for MyBunny.TV but we set an explicit one so other providers
-        // (notably ones that rate-limit "OkHttp/x.y.z") behave too.
-        private const val USER_AGENT = "VLC/3.0.20 LibVLC/3.0.20"
+
+        /** Default UA when the caller doesn't supply one (legacy paths). */
+        private const val DEFAULT_USER_AGENT = "okhttp/4.12.0"
 
         // get_series_info is rate-limited hard by some providers
         // (MyBunny.TV returns HTTP 429 at >2 concurrent).  We no longer
@@ -71,16 +70,17 @@ class XtreamJsonClient @Inject constructor(
         host: String,
         user: String,
         pass: String,
+        userAgent: String = DEFAULT_USER_AGENT,
         onProgress: (String) -> Unit = {},
     ): XtreamSnapshot = withContext(Dispatchers.IO) {
         val base = host.trimEnd('/')
 
         onProgress("Loading categories")
-        val liveCats = fetchAction<XtreamCategory>(base, user, pass, "get_live_categories")
+        val liveCats = fetchAction<XtreamCategory>(base, user, pass, "get_live_categories", userAgent)
             .associate { it.id to it.name }
-        val vodCats = fetchAction<XtreamCategory>(base, user, pass, "get_vod_categories")
+        val vodCats = fetchAction<XtreamCategory>(base, user, pass, "get_vod_categories", userAgent)
             .associate { it.id to it.name }
-        val seriesCats = fetchAction<XtreamCategory>(base, user, pass, "get_series_categories")
+        val seriesCats = fetchAction<XtreamCategory>(base, user, pass, "get_series_categories", userAgent)
             .associate { it.id to it.name }
         Log.d(
             TAG,
@@ -88,17 +88,17 @@ class XtreamJsonClient @Inject constructor(
         )
 
         onProgress("Loading live channels")
-        val liveDtos = fetchAction<XtreamLiveStream>(base, user, pass, "get_live_streams")
+        val liveDtos = fetchAction<XtreamLiveStream>(base, user, pass, "get_live_streams", userAgent)
         Log.d(TAG, "Fetched ${liveDtos.size} live streams")
         val liveEntries = liveDtos.mapNotNull { it.toEntry(base, user, pass, liveCats) }
 
         onProgress("Loading movies")
-        val vodDtos = fetchAction<XtreamVodStream>(base, user, pass, "get_vod_streams")
+        val vodDtos = fetchAction<XtreamVodStream>(base, user, pass, "get_vod_streams", userAgent)
         Log.d(TAG, "Fetched ${vodDtos.size} VOD streams")
         val movieEntries = vodDtos.mapNotNull { it.toEntry(base, user, pass, vodCats) }
 
         onProgress("Loading box sets")
-        val seriesDtos = fetchAction<XtreamSeries>(base, user, pass, "get_series")
+        val seriesDtos = fetchAction<XtreamSeries>(base, user, pass, "get_series", userAgent)
             // Some providers send duplicate entries for the same
             // series_id (different sources / qualities) — keep one each
             // so we don't double-write the series table.
@@ -134,6 +134,7 @@ class XtreamJsonClient @Inject constructor(
         seriesId: Int,
         seriesTitle: String,
         groupTitle: String,
+        userAgent: String = DEFAULT_USER_AGENT,
     ): List<M3uEntry> = withContext(Dispatchers.IO) {
         val base = host.trimEnd('/')
         val url = "$base/player_api.php?username=$user&password=$pass" +
@@ -141,7 +142,7 @@ class XtreamJsonClient @Inject constructor(
 
         var attempt = 0
         while (true) {
-            val request = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
+            val request = Request.Builder().url(url).header("User-Agent", userAgent).build()
             try {
                 http.newCall(request).execute().use { response ->
                     when {
@@ -231,11 +232,12 @@ class XtreamJsonClient @Inject constructor(
         user: String,
         pass: String,
         action: String,
+        userAgent: String,
     ): List<T> {
         val url = "$base/player_api.php?username=$user&password=$pass&action=$action"
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", USER_AGENT)
+            .header("User-Agent", userAgent)
             .build()
         http.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {

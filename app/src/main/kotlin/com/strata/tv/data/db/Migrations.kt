@@ -82,3 +82,20 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
         )
     }
 }
+
+/**
+ * v7 → v8: adds `title` to `continue_watching` so the home rail can
+ * render the human-readable name without joining back to the movies /
+ * series tables.  Needed because [com.strata.tv.ui.player.PlayerViewModel]
+ * now writes the stable content-id hash into `content_id` (issue #42)
+ * — previously it stored the title there, so the home rail could fall
+ * back to displaying contentId directly.  Existing rows default to ''
+ * and will be repopulated next time the user plays each item.
+ */
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE continue_watching ADD COLUMN title TEXT NOT NULL DEFAULT ''",
+        )
+    }
+}

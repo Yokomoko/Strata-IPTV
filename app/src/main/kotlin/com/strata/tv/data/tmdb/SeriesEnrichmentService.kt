@@ -62,6 +62,7 @@ class SeriesEnrichmentService @Inject constructor(
         val wantedLanguages = settings.wantedLanguages
         val excludedLanguages = settings.excludedLanguages
         val excludedGenres = settings.excludedGenres
+        val minimumYear = settings.minimumYear
         for (series in pending) {
             runCatching {
                 val cleaned = TitleParser.cleanForSearch(series.seriesTitle)
@@ -70,15 +71,28 @@ class SeriesEnrichmentService @Inject constructor(
                     query = cleaned.title,
                     year = cleaned.year,
                 )
-                val match = response.results.firstOrNull() ?: return@runCatching
+                // Same pickBestMatch logic as MovieEnrichmentService —
+                // see kdoc there.  TMDB's popularity sort can surface
+                // wildly wrong shows for short queries.
+                val match = pickBestSeriesMatch(
+                    candidates = response.results,
+                    query = cleaned.title,
+                    year = cleaned.year,
+                ) ?: run {
+                    Log.d(TAG, "No good TMDB match for '${series.seriesTitle}' (query='${cleaned.title}')")
+                    return@runCatching
+                }
                 val lang = match.originalLanguage.orEmpty()
                 val genreStr = match.genreIds.joinToString(", ") { tvGenreName(it) }
+                val tmdbYear = match.firstAirDate?.take(4)?.toIntOrNull()
                 val isLangWanted = wantedLanguages.isEmpty() || lang in wantedLanguages
                 val isLangExcluded = lang in excludedLanguages
                 val isGenreExcluded = excludedGenres.any { g ->
                     g.isNotEmpty() && genreStr.contains(g, ignoreCase = true)
                 }
-                val isHidden = !isLangWanted || isLangExcluded || isGenreExcluded
+                val tooOld = minimumYear > 0 &&
+                    tmdbYear != null && tmdbYear < minimumYear
+                val isHidden = !isLangWanted || isLangExcluded || isGenreExcluded || tooOld
 
                 seriesDao.updateMetadata(
                     title = series.seriesTitle,
@@ -200,6 +214,40 @@ class SeriesEnrichmentService @Inject constructor(
     // -----------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------
+
+    private fun pickBestSeriesMatch(
+        candidates: List<TmdbTv>,
+        query: String,
+        year: Int?,
+    ): TmdbTv? {
+        if (candidates.isEmpty()) return null
+        val q = TitleParser.normalise(query)
+        if (q.isBlank()) return candidates.firstOrNull()
+
+        var bestScore = 0
+        var best: TmdbTv? = null
+        for (c in candidates) {
+            val t = TitleParser.normalise(c.name)
+            val o = TitleParser.normalise(c.originalName.orEmpty())
+            var score = 0
+            when {
+                t == q -> score += 1000
+                o.isNotBlank() && o == q -> score += 800
+                t.startsWith("$q ") || t.startsWith("$q:") -> score += 200
+                t.startsWith(q) -> score += 150
+                " $q " in " $t " -> score += 50
+                q in t -> score += 25
+            }
+            if (year != null && c.firstAirDate?.take(4)?.toIntOrNull() == year) {
+                score += 30
+            }
+            if (score > bestScore) {
+                bestScore = score
+                best = c
+            }
+        }
+        return best
+    }
 
     /** TMDB TV genre ID to display name. */
     private fun tvGenreName(id: Int): String = when (id) {

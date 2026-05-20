@@ -174,6 +174,7 @@ class ShowDetailViewModel @Inject constructor(
             seriesId = xtreamId,
             seriesTitle = series.seriesTitle,
             groupTitle = "",
+            userAgent = provider.apiUserAgent(),
         )
         if (entries.isEmpty()) {
             Log.w(TAG, "No episodes returned for '${series.seriesTitle}'")

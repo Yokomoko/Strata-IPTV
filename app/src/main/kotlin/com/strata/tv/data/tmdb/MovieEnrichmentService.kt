@@ -73,6 +73,7 @@ class MovieEnrichmentService @Inject constructor(
             val wantedLanguages = settings.wantedLanguages
             val excludedLanguages = settings.excludedLanguages
             val excludedGenres = settings.excludedGenres
+            val minimumYear = settings.minimumYear
 
             // Step 1: Search for TMDB ID (skip if already known)
             if (tmdbId == 0) {
@@ -82,15 +83,33 @@ class MovieEnrichmentService @Inject constructor(
                     query = cleaned.title,
                     year = movie.year ?: cleaned.year,
                 )
-                val match = response.results.firstOrNull() ?: return
+                // Pick the best title-matching result, not blindly the
+                // first.  TMDB sorts by popularity, so a generic query
+                // like "The Stranger" with no year was returning
+                // "Pirates of the Caribbean" (which is hugely popular
+                // and apparently fuzzy-matches enough to be #1).
+                // pickBestMatch requires the candidate's title to
+                // actually contain the query — better no poster than
+                // someone else's poster.
+                val match = pickBestMatch(
+                    candidates = response.results,
+                    query = cleaned.title,
+                    year = movie.year ?: cleaned.year,
+                ) ?: run {
+                    Log.d(TAG, "No good TMDB match for '${movie.movieTitle}' (query='${cleaned.title}')")
+                    return
+                }
                 val lang = match.originalLanguage.orEmpty()
                 val genreStr = match.genreIds.joinToString(", ") { genreName(it) }
+                val tmdbYear = match.releaseDate?.take(4)?.toIntOrNull()
                 val isLangWanted = wantedLanguages.isEmpty() || lang in wantedLanguages
                 val isLangExcluded = lang in excludedLanguages
                 val isGenreExcluded = excludedGenres.any { g ->
                     g.isNotEmpty() && genreStr.contains(g, ignoreCase = true)
                 }
-                val isHidden = !isLangWanted || isLangExcluded || isGenreExcluded
+                val tooOld = minimumYear > 0 &&
+                    tmdbYear != null && tmdbYear < minimumYear
+                val isHidden = !isLangWanted || isLangExcluded || isGenreExcluded || tooOld
 
                 movieDao.updateMetadata(
                     contentId = movie.contentId,
@@ -156,6 +175,60 @@ class MovieEnrichmentService @Inject constructor(
     // -----------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------
+
+    /**
+     * Pick the best matching TMDB result for our search query.
+     *
+     * TMDB sorts results by popularity by default, so for short / generic
+     * queries (e.g. "The Stranger", "Frankenstein", "Wonder") the most
+     * popular movie that *vaguely* matches floats to the top — even if
+     * its title has nothing to do with our actual film.  This was
+     * surfacing "Pirates of the Caribbean: On Stranger Tides" as the
+     * art for a movie called "The Stranger".
+     *
+     * Scoring (higher = better):
+     *  - title equals query (normalised): +1000
+     *  - originalTitle equals query: +800
+     *  - title startsWith query: +200
+     *  - title contains query as a whole word: +50
+     *  - release year matches our year: +30
+     *
+     * Anything scoring 0 (no title overlap at all) is dropped — we'd
+     * rather leave a movie with no poster than slap "Pirates" on it.
+     */
+    private fun pickBestMatch(
+        candidates: List<TmdbMovie>,
+        query: String,
+        year: Int?,
+    ): TmdbMovie? {
+        if (candidates.isEmpty()) return null
+        val q = TitleParser.normalise(query)
+        if (q.isBlank()) return candidates.firstOrNull()
+
+        var bestScore = 0
+        var best: TmdbMovie? = null
+        for (c in candidates) {
+            val t = TitleParser.normalise(c.title)
+            val o = TitleParser.normalise(c.originalTitle.orEmpty())
+            var score = 0
+            when {
+                t == q -> score += 1000
+                o.isNotBlank() && o == q -> score += 800
+                t.startsWith("$q ") || t.startsWith("$q:") -> score += 200
+                t.startsWith(q) -> score += 150
+                " $q " in " $t " -> score += 50
+                q in t -> score += 25
+            }
+            if (year != null && c.releaseDate?.take(4)?.toIntOrNull() == year) {
+                score += 30
+            }
+            if (score > bestScore) {
+                bestScore = score
+                best = c
+            }
+        }
+        return best
+    }
 
     private fun genreName(id: Int): String = when (id) {
         28 -> "Action"; 12 -> "Adventure"; 16 -> "Animation"

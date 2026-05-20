@@ -43,6 +43,7 @@ class SettingsRepository @Inject constructor(
         val WANTED_LANGUAGES = stringSetPreferencesKey("wanted_languages")
         val EXCLUDED_GENRES = stringSetPreferencesKey("excluded_genres")
         val EXCLUDED_LANGUAGES = stringSetPreferencesKey("excluded_languages")
+        val MINIMUM_YEAR = androidx.datastore.preferences.core.intPreferencesKey("minimum_year")
         val BLACKLIST = stringSetPreferencesKey("blacklist")
         val STOP_STREAM_IN_MENUS = booleanPreferencesKey("stop_stream_in_menus")
     }
@@ -69,6 +70,7 @@ class SettingsRepository @Inject constructor(
                 ?: AppSettings.DEFAULT_WANTED_LANGUAGES,
             excludedGenres = prefs[Keys.EXCLUDED_GENRES] ?: emptySet(),
             excludedLanguages = prefs[Keys.EXCLUDED_LANGUAGES] ?: emptySet(),
+            minimumYear = prefs[Keys.MINIMUM_YEAR] ?: AppSettings.DEFAULT_MINIMUM_YEAR,
             blacklistedContentIds = prefs[Keys.BLACKLIST] ?: emptySet(),
             stopStreamInMenus = prefs[Keys.STOP_STREAM_IN_MENUS] ?: false,
         )
@@ -152,6 +154,10 @@ class SettingsRepository @Inject constructor(
             val current = prefs[Keys.EXCLUDED_LANGUAGES] ?: emptySet()
             prefs[Keys.EXCLUDED_LANGUAGES] = current - code
         }
+    }
+
+    suspend fun setMinimumYear(year: Int) {
+        context.settingsStore.edit { it[Keys.MINIMUM_YEAR] = year }
     }
 
     suspend fun addToBlacklist(contentId: String) {

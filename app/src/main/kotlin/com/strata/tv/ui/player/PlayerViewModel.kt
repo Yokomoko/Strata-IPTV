@@ -875,6 +875,7 @@ class PlayerViewModel @Inject constructor(
                 seriesTitle = seriesTitle,
                 seasonNumber = seasonNumber,
                 episodeNumber = episodeNumber,
+                title = title,
             )
         }
     }
@@ -899,6 +900,7 @@ class PlayerViewModel @Inject constructor(
                     seriesTitle = seriesTitle,
                     seasonNumber = seasonNumber,
                     episodeNumber = episodeNumber,
+                    title = title,
                 ),
             )
             // Also persist progress on the episode row so the episode list

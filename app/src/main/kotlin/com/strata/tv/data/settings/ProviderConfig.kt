@@ -86,6 +86,27 @@ data class ProviderConfig(
         val core = "$base/player_api.php?username=$username&password=$password"
         return if (action != null) "$core&action=$action" else core
     }
+
+    /**
+     * User-Agent string to send on Xtream API calls (`player_api.php`,
+     * `get_series_info`, etc.).  Provider-specific because different
+     * panel software has different filters:
+     *
+     * - **MyBunny.TV** is happy with the VLC UA — it's a turbobunny-
+     *   panel install behind Cloudflare and that's a common UA.
+     * - **SkyGlass** is an XCIPTV-v911 rebrand whose underlying panel
+     *   rejects the VLC UA on the JSON API.  The XCIPTV-SkyGlass app
+     *   itself dispatches via Volley/HurlStack which sends Android's
+     *   default `okhttp/4.x`-equivalent UA, so we mirror that.
+     * - **Custom Xtream** defaults to `okhttp/4.12.0` (safer — only a
+     *   minority of panels filter okhttp).  User can change provider
+     *   to MyBunny preset if they want the VLC UA.
+     */
+    fun apiUserAgent(): String = when (providerId) {
+        "mybunny_tv" -> "VLC/3.0.20 LibVLC/3.0.20"
+        "skyglass" -> "okhttp/4.12.0"
+        else -> "okhttp/4.12.0"
+    }
 }
 
 /**

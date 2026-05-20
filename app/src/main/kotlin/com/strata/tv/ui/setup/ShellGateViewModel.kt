@@ -2,6 +2,7 @@ package com.strata.tv.ui.setup
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.strata.tv.data.db.MovieDao
 import com.strata.tv.data.repo.SyncService
 import com.strata.tv.data.settings.SettingsRepository
 import com.strata.tv.data.tmdb.EnrichmentProgressTracker
@@ -30,6 +31,7 @@ class ShellGateViewModel @Inject constructor(
     settings: SettingsRepository,
     val syncService: SyncService,
     val enrichmentTracker: EnrichmentProgressTracker,
+    movieDao: MovieDao,
 ) : ViewModel() {
 
     private val backgroundedFirstSync = MutableStateFlow(false)
@@ -53,7 +55,8 @@ class ShellGateViewModel @Inject constructor(
         backgroundedFirstSync,
         syncService.progress,
         enrichmentTracker.progress,
-    ) { snapshot, backgrounded, syncProgress, enrich ->
+        movieDao.watchVisibleCount(),
+    ) { snapshot, backgrounded, syncProgress, enrich, movieCount ->
         val isConfigured = snapshot.provider.isConfigured
         val syncDone = syncProgress is SyncService.Progress.Done
         // Enrichment is "done" when:
@@ -64,9 +67,17 @@ class ShellGateViewModel @Inject constructor(
         //     (e.g. an empty catalogue), so we shouldn't wait for it.
         val enrichDone = !enrich.isRunning &&
             (enrich.enrichmentHasStarted || syncDone && syncProgress.totalParsed == 0)
+        // Returning users who already have content in the library
+        // should never see the "Building your Library" screen on
+        // launch — they have data, just let them straight into the
+        // shell and let the periodic sync update the library in the
+        // background.  Only show FirstSync when the library is
+        // genuinely empty.
+        val hasContent = movieCount > 0
         when {
             !isConfigured -> GateStage.Wizard
             backgrounded -> GateStage.Main
+            hasContent -> GateStage.Main
             syncDone && enrichDone -> GateStage.Main
             else -> GateStage.FirstSync
         }

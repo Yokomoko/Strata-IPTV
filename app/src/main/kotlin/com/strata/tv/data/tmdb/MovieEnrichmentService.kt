@@ -122,6 +122,13 @@ class MovieEnrichmentService @Inject constructor(
                     hidden = isHidden,
                     tmdbId = match.id,
                 )
+                // Backfill the year column with TMDB's authoritative
+                // release year.  Necessary for the minimum-year filter
+                // to work — many M3U titles ship without a year so
+                // the M3U-parsed `year` column would be null.
+                if (tmdbYear != null) {
+                    movieDao.updateYear(movie.contentId, tmdbYear)
+                }
 
                 if (isHidden) return
                 tmdbId = match.id

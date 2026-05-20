@@ -406,6 +406,18 @@ interface MovieDao {
     suspend fun showByIds(ids: List<Int>)
 
     /**
+     * Write the TMDB-derived release year back to the movies table.
+     * The `year` column was previously only populated from M3U title
+     * parsing (e.g. "Inception (2010).mkv"), so films with no year in
+     * their title had `year = null` and slipped through the minimum-year
+     * filter regardless of how the user set it.  TMDB always knows the
+     * release year, so writing it here makes the year filter actually
+     * apply across the whole library.
+     */
+    @Query("UPDATE movies SET year = :year WHERE content_id = :contentId")
+    suspend fun updateYear(contentId: String, year: Int)
+
+    /**
      * Hide every movie whose comma-separated TMDB genre string contains
      * the given token (case-insensitive substring match).  Used by the
      * "Ignore Genre" context menu so the rest of that genre disappears
@@ -524,6 +536,20 @@ interface SeriesDao {
     /** Set the hidden flag on a single series by title. */
     @Query("UPDATE series SET hidden = :hidden WHERE series_title = :title")
     suspend fun setHidden(title: String, hidden: Boolean)
+
+    /**
+     * Focused update for [total_seasons] + [total_episodes] only —
+     * used by the show detail screen's lazy episode fetcher to keep
+     * the series-card subtitle ("S04 · 47E") in sync without
+     * overwriting the rest of the TMDB-enriched columns.
+     */
+    @Query(
+        """
+        UPDATE series SET total_seasons = :seasons, total_episodes = :episodes
+        WHERE series_title = :title
+        """,
+    )
+    suspend fun updateCounts(title: String, seasons: Int, episodes: Int)
 
     @Query("UPDATE series SET hidden = 1 WHERE series_title = :title")
     suspend fun hide(title: String)
@@ -788,6 +814,24 @@ interface ContinueWatchingDao {
 
     @Query("SELECT * FROM continue_watching ORDER BY last_updated DESC LIMIT :limit")
     fun watchAll(limit: Int = 20): Flow<List<ContinueWatchingEntity>>
+
+    /**
+     * One-shot backfill of the `title` column for rows written before
+     * v0.3.24 (when the column didn't exist).  Joins movies via
+     * content_id and series via series_title to fill empty titles.
+     * Runs once on app launch from HomeViewModel.init.
+     */
+    @Query(
+        """
+        UPDATE continue_watching SET title = COALESCE(
+            (SELECT movie_title FROM movies WHERE movies.content_id = continue_watching.content_id),
+            (SELECT series_title FROM series WHERE series.series_title = continue_watching.series_title),
+            ''
+        )
+        WHERE title = ''
+        """,
+    )
+    suspend fun backfillEmptyTitles(): Int
 
     /**
      * "Continue Watching" rail variant that collapses show episodes by

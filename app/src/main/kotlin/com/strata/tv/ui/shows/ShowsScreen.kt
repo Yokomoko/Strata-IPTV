@@ -197,7 +197,13 @@ private fun ShowPosterWithMenu(
     ) {
         PosterCard(
             title = show.seriesTitle,
-            subtitle = "${show.totalSeasons}S \u00B7 ${show.totalEpisodes}E",
+            // Hide the count subtitle when we genuinely don't know yet
+            // (catalogue persisted but episodes haven't been lazy-loaded
+            // AND TMDB detail enrichment hasn't run) \u2014 "0S 0E" is
+            // misleading and rendering nothing reads as "open me to load".
+            subtitle = if (show.totalSeasons > 0 || show.totalEpisodes > 0) {
+                "${show.totalSeasons}S \u00B7 ${show.totalEpisodes}E"
+            } else null,
             posterUrl = show.posterUrl.takeIf { it.isNotBlank() },
             badge = if (show.hasNewEpisodes) "NEW" else null,
             onClick = onClick,

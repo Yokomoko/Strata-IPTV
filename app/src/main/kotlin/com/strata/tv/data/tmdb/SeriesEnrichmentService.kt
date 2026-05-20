@@ -154,6 +154,20 @@ class SeriesEnrichmentService @Inject constructor(
                         ?.substring(0, 4)
                         ?.toIntOrNull(),
                 )
+                // Also seed total counts from TMDB so the Shows card
+                // subtitle shows something useful before the user
+                // opens the detail screen and triggers the lazy
+                // episode load.  The lazy-load later overwrites these
+                // with the actual provider-available counts.
+                val tmdbSeasons = detail.numberOfSeasons ?: 0
+                val tmdbEpisodes = detail.numberOfEpisodes ?: 0
+                if (tmdbSeasons > 0 || tmdbEpisodes > 0) {
+                    seriesDao.updateCounts(
+                        title = series.seriesTitle,
+                        seasons = tmdbSeasons,
+                        episodes = tmdbEpisodes,
+                    )
+                }
             }.onFailure { e ->
                 Log.w(TAG, "Detail failed for tmdbId=${series.tmdbId} " +
                     "'${series.seriesTitle}': ${e.message}")

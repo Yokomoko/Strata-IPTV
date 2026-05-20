@@ -213,6 +213,16 @@ class HomeViewModel @Inject constructor(
         // sync and keeps the library fresh without blocking app start.
         schedulePeriodicSync()
 
+        // Backfill the continue_watching `title` column for rows
+        // written before v0.3.24 (when the column was added).  Joins
+        // back to movies / series so legacy rows display a real title
+        // instead of the content-id hash.  Runs once per launch on
+        // IO — cheap UPDATE with a sub-select, no flow churn.
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { cwDao.backfillEmptyTitles() }
+                .onFailure { Log.w(TAG, "CW title backfill failed", it) }
+        }
+
         viewModelScope.launch {
             Log.i(TAG, "Waiting for provider config...")
             // Suspend until the provider is configured.  HomeViewModel

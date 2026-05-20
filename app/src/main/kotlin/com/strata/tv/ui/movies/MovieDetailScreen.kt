@@ -47,6 +47,7 @@ import com.strata.tv.data.db.MovieEntity
 import com.strata.tv.ui.nav.PlayerArgs
 import com.strata.tv.ui.theme.StrataColors
 import com.strata.tv.ui.widgets.GenreChips
+import androidx.compose.ui.platform.LocalContext
 import com.strata.tv.ui.widgets.TrailerWebView
 import com.strata.tv.ui.widgets.MetadataChip
 import com.strata.tv.ui.widgets.ShimmerHero
@@ -360,13 +361,39 @@ private fun MovieDetailContent(
             }
         }
 
-        // -- Trailer WebView overlay ----------------------------------------
-        if (showTrailer && movie.trailerUrl.isNotBlank()) {
+        // -- Trailer overlay ---------------------------------------------
+        // The YouTube IFrame embed (even on the youtube-nocookie domain)
+        // routinely refuses to play with "Video player configuration
+        // error 153" because many channels have embedded playback
+        // disabled.  The robust path is to hand the video off to the
+        // YouTube app via an Intent — Fire Stick always has it
+        // installed and its player Just Works.  We fall back to the
+        // WebView overlay only if the YouTube app isn't available.
+        val context = LocalContext.current
+        LaunchedEffect(showTrailer) {
+            if (!showTrailer || movie.trailerUrl.isBlank()) return@LaunchedEffect
             val youtubeKey = movie.trailerUrl.substringAfter("v=").substringBefore("&")
-            TrailerWebView(
-                youtubeKey = youtubeKey,
-                onDismiss = { showTrailer = false },
-            )
+            val ytAppIntent = android.content.Intent(
+                android.content.Intent.ACTION_VIEW,
+                android.net.Uri.parse("vnd.youtube:$youtubeKey"),
+            ).apply { addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK) }
+            val launched = runCatching { context.startActivity(ytAppIntent) }.isSuccess
+            if (!launched) {
+                // Try the standard https URL — picks up any browser /
+                // alternative YT app.
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://www.youtube.com/watch?v=$youtubeKey"),
+                        ).apply { addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK) },
+                    )
+                }
+            }
+            // Drop the overlay flag immediately — the YouTube app takes
+            // over the screen, the user comes back to the detail screen
+            // when they finish or back out.
+            showTrailer = false
         }
     }
 }

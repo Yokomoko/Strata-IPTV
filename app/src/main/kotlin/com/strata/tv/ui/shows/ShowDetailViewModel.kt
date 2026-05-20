@@ -217,6 +217,19 @@ class ShowDetailViewModel @Inject constructor(
         }
         contentDao.upsertAll(contentRows)
         episodeDao.upsertAll(episodeRows)
+
+        // Update the series header's counts so the Shows-screen card
+        // subtitle reflects what actually got persisted.  Before this,
+        // every lazy-loaded series showed "0S · 0E" because the
+        // catalogue pass left those at zero and TMDB-detail enrichment
+        // would only run later.
+        val seasonCount = episodeRows.mapNotNull { it.seasonNumber }.toSet().size
+        seriesDao.updateCounts(
+            title = series.seriesTitle,
+            seasons = seasonCount,
+            episodes = episodeRows.size,
+        )
+
         Log.d(TAG, "Persisted ${episodeRows.size} episodes for '${series.seriesTitle}'")
         lazyFetched += xtreamId
     }

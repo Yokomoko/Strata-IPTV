@@ -167,6 +167,8 @@ data class TmdbTvDetail(
     val credits: TmdbCredits? = null,
     @SerialName("content_ratings") val contentRatings: TmdbContentRatingsWrapper? = null,
     @SerialName("watch/providers") val watchProviders: TmdbWatchProvidersWrapper? = null,
+    @SerialName("number_of_seasons") val numberOfSeasons: Int? = null,
+    @SerialName("number_of_episodes") val numberOfEpisodes: Int? = null,
 )
 
 @Serializable

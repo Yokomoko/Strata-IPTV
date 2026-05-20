@@ -273,12 +273,17 @@ private fun ShowDetailContent(
             // 1. Resume mid-episode if the user has unfinished progress
             // 2. Play next episode if the last one was finished
             // 3. Fall back to first episode of the selected season
+            //
+            // Use the actual first available episode rather than
+            // hardcoding "E1" \u2014 providers often only ship partial
+            // seasons (e.g. S4E4 onwards) and the old "Play S1E1"
+            // label lied about what would actually start playing.
             val targetEp = resumeInfo?.episode ?: episodes.firstOrNull()
             val isResume = resumeInfo != null && resumeInfo.resumePositionMs > 0
             val buttonLabel = when {
-                isResume -> "\u25B6  Continue S${targetEp!!.seasonNumber}E${targetEp.episodeNumber}"
-                resumeInfo != null -> "\u25B6  Play S${targetEp!!.seasonNumber}E${targetEp.episodeNumber}"
-                else -> "\u25B6  Play S${activeSeason}E1"
+                targetEp == null -> "\u25B6  Play"
+                isResume -> "\u25B6  Continue S${targetEp.seasonNumber}E${targetEp.episodeNumber}"
+                else -> "\u25B6  Play S${targetEp.seasonNumber}E${targetEp.episodeNumber}"
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {

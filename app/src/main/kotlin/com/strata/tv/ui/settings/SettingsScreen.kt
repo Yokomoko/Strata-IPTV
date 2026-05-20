@@ -269,8 +269,10 @@ fun SettingsScreen(
         Card {
             Column {
                 ListRow(
-                    headline = "Strata TV",
-                    supporting = "v0.1.2",
+                    headline = "Strata IPTV",
+                    // Read straight from BuildConfig so this stays in
+                    // sync with build.gradle.kts versionName forever.
+                    supporting = "v${com.strata.tv.BuildConfig.VERSION_NAME}",
                 )
                 ListRow(
                     headline = "EPG source",

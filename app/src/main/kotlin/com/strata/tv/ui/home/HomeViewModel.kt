@@ -69,6 +69,7 @@ class HomeViewModel @Inject constructor(
     private val seriesDao: SeriesDao,
     private val channelDao: ChannelDao,
     private val cwDao: ContinueWatchingDao,
+    private val episodeDao: com.strata.tv.data.db.EpisodeDao,
     private val watchlistDao: WatchlistDao,
     private val sourceDao: SourceDao,
     private val settingsRepo: SettingsRepository,
@@ -221,6 +222,15 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { cwDao.backfillEmptyTitles() }
                 .onFailure { Log.w(TAG, "CW title backfill failed", it) }
+
+            // Dedup any leftover duplicate episodes from pre-v0.3.28
+            // lazy-loads that inserted every quality variant for a
+            // (season, episode) slot.  Cheap (one DELETE) and only
+            // affects pre-fix rows — new lazy loads dedup at fetch.
+            runCatching {
+                val removed = episodeDao.dedupeAcrossSeries()
+                if (removed > 0) Log.i(TAG, "Episode dedup removed $removed legacy duplicates")
+            }.onFailure { Log.w(TAG, "Episode dedup failed", it) }
         }
 
         viewModelScope.launch {

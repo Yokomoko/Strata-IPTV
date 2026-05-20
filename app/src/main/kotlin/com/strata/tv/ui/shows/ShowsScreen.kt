@@ -1,6 +1,7 @@
 package com.strata.tv.ui.shows
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -49,7 +53,10 @@ import com.strata.tv.ui.widgets.ShimmerRail
  * Phase 9: cinematic hero for the featured series,
  * genre-grouped rails, shimmer loading state.
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(
+    ExperimentalTvMaterial3Api::class,
+    androidx.compose.ui.ExperimentalComposeUiApi::class,
+)
 @Composable
 fun ShowsScreen(
     modifier: Modifier = Modifier,
@@ -61,10 +68,25 @@ fun ShowsScreen(
     var contextMenuVisible by remember { mutableStateOf(false) }
     var contextMenuActions by remember { mutableStateOf<List<ContextMenuAction>>(emptyList()) }
 
+    // D-pad Up from the top rail (e.g. Drama) must escape to the
+    // sidebar -- the hero is a non-focusable Box, so without an
+    // explicit exit the first rail's posters trap focus on Up.
+    val sidebarRequester = onNavigate?.sidebarRequester
+
     Box(modifier = modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .focusGroup()
+                .focusProperties {
+                    exit = { dir ->
+                        if (dir == FocusDirection.Up && sidebarRequester != null) {
+                            sidebarRequester
+                        } else {
+                            FocusRequester.Default
+                        }
+                    }
+                }
                 .verticalScroll(rememberScrollState()),
         ) {
             // -- Hero --------------------------------------------------------

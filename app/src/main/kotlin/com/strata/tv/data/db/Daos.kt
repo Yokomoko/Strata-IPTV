@@ -690,6 +690,25 @@ interface EpisodeDao {
     @Query("SELECT COUNT(*) FROM episodes WHERE series_title = :title COLLATE NOCASE")
     suspend fun countForSeries(title: String): Int
 
+    /**
+     * One-shot dedup across the entire episodes table.  Some lazy-loaded
+     * series ship multiple variants per (season, episode) slot
+     * (e.g. The Boys S5 had 3× "Episode 1" / 2× "Episode 2") which
+     * showed up as duplicate cards in the detail screen.  v0.3.28
+     * added dedup at fetch time, but pre-v0.3.28 rows persist.  This
+     * keeps the row with the highest id per slot (the most recently
+     * inserted) and drops the rest.  Returns the row count deleted.
+     */
+    @Query(
+        """
+        DELETE FROM episodes WHERE id NOT IN (
+            SELECT MAX(id) FROM episodes
+            GROUP BY series_title COLLATE NOCASE, season_number, episode_number
+        )
+        """,
+    )
+    suspend fun dedupeAcrossSeries(): Int
+
     /** First episode of a series (lowest season, then lowest episode) — for "play series" shortcuts. */
     @Query(
         """

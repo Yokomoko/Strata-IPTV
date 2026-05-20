@@ -3,6 +3,7 @@ package com.strata.tv.data.xtream
 import android.util.Log
 import com.strata.tv.data.m3u.M3uEntry
 import com.strata.tv.domain.ContentType
+import com.strata.tv.domain.MovieDeduplicator
 import com.strata.tv.domain.TitleParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -194,33 +195,56 @@ class XtreamJsonClient @Inject constructor(
         groupTitle: String,
     ): List<M3uEntry> {
         val info: XtreamSeriesInfo = json.decodeFromString(body)
-        val out = mutableListOf<M3uEntry>()
+
+        // Dedup by (season, episode_num) — providers commonly return
+        // multiple variants per slot (4K + 1080p + 720p sources) and
+        // we previously inserted all of them, giving the show detail
+        // screen 3-4 cards of "Episode 1" for Season 5 of The Boys.
+        // Keep the highest-quality variant per slot, falling back to
+        // the last entry when no quality signal is present.
+        data class SlotKey(val season: Int, val episode: Int)
+        val bestPerSlot = mutableMapOf<SlotKey, XtreamEpisode>()
         for ((seasonKey, seasonEpisodes) in info.episodes.orEmpty()) {
             val season = seasonKey.toIntOrNull() ?: continue
             for (ep in seasonEpisodes) {
                 val episodeNum = ep.episodeNum?.toIntOrNull() ?: continue
-                val ext = ep.containerExtension?.takeIf { it.isNotBlank() } ?: "mp4"
-                val streamUrl = "$base/series/$user/$pass/${ep.id}.$ext"
-                val displayName = "$seriesTitle S%02dE%02d".format(season, episodeNum)
-                out.add(
-                    M3uEntry(
-                        displayName = displayName,
-                        streamUrl = streamUrl,
-                        groupTitle = groupTitle,
-                        tvgId = seriesId.toString(),
-                        tvgName = ep.title ?: displayName,
-                        tvgLogo = ep.info?.movieImage.orEmpty(),
-                        tvgType = "series",
-                        extinfDuration = 0,
-                        contentType = ContentType.Show,
-                        seriesTitle = seriesTitle,
-                        seasonNumber = season,
-                        episodeNumber = episodeNum,
-                    ),
-                )
+                val key = SlotKey(season, episodeNum)
+                val existing = bestPerSlot[key]
+                if (existing == null) {
+                    bestPerSlot[key] = ep
+                } else {
+                    val existingQ = MovieDeduplicator.detectQuality(
+                        existing.title.orEmpty(),
+                        "$base/series/$user/$pass/${existing.id}.${existing.containerExtension.orEmpty()}",
+                    ).ordinal
+                    val newQ = MovieDeduplicator.detectQuality(
+                        ep.title.orEmpty(),
+                        "$base/series/$user/$pass/${ep.id}.${ep.containerExtension.orEmpty()}",
+                    ).ordinal
+                    if (newQ >= existingQ) bestPerSlot[key] = ep
+                }
             }
         }
-        return out
+
+        return bestPerSlot.entries.map { (key, ep) ->
+            val ext = ep.containerExtension?.takeIf { it.isNotBlank() } ?: "mp4"
+            val streamUrl = "$base/series/$user/$pass/${ep.id}.$ext"
+            val displayName = "$seriesTitle S%02dE%02d".format(key.season, key.episode)
+            M3uEntry(
+                displayName = displayName,
+                streamUrl = streamUrl,
+                groupTitle = groupTitle,
+                tvgId = seriesId.toString(),
+                tvgName = ep.title ?: displayName,
+                tvgLogo = ep.info?.movieImage.orEmpty(),
+                tvgType = "series",
+                extinfDuration = 0,
+                contentType = ContentType.Show,
+                seriesTitle = seriesTitle,
+                seasonNumber = key.season,
+                episodeNumber = key.episode,
+            )
+        }
     }
 
     // ------------------------------------------------------------------

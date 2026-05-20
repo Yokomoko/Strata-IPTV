@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="0" y2="1080" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#08091A"/>
+      <stop offset="0.5" stop-color="#150C2E"/>
+      <stop offset="1" stop-color="#23093A"/>
+    </linearGradient>
+    <radialGradient id="glowPurple" cx="480" cy="380" r="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5E2D9B" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#5E2D9B" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowPink" cx="1520" cy="820" r="780" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#EC4899" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#EC4899" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowCyan" cx="1720" cy="180" r="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00E5FF" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#00E5FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowVignette" cx="960" cy="540" r="1100" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="0.6" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.55"/>
+    </radialGradient>
+    <linearGradient id="sGrad" x1="0" y1="232" x2="0" y2="764" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00E5FF"/>
+      <stop offset="0.25" stop-color="#3B82F6"/>
+      <stop offset="0.55" stop-color="#A855F7"/>
+      <stop offset="0.82" stop-color="#EC4899"/>
+      <stop offset="1" stop-color="#FF2D92"/>
+    </linearGradient>
+    <linearGradient id="wmGrad" x1="0" y1="0" x2="0" y2="702" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E0CFFA"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#base)"/>
+  <rect width="1920" height="1080" fill="url(#glowPurple)"/>
+  <rect width="1920" height="1080" fill="url(#glowPink)"/>
+  <rect width="1920" height="1080" fill="url(#glowCyan)"/>
+  <g stroke="#FFFFFF" stroke-opacity="0.022" stroke-width="1">
+    <line x1="0" y1="120"  x2="1920" y2="120"/>
+    <line x1="0" y1="240"  x2="1920" y2="240"/>
+    <line x1="0" y1="360"  x2="1920" y2="360"/>
+    <line x1="0" y1="480"  x2="1920" y2="480"/>
+    <line x1="0" y1="600"  x2="1920" y2="600"/>
+    <line x1="0" y1="720"  x2="1920" y2="720"/>
+    <line x1="0" y1="840"  x2="1920" y2="840"/>
+    <line x1="0" y1="960"  x2="1920" y2="960"/>
+  </g>
+  <rect width="1920" height="1080" fill="url(#glowVignette)"/>
+
+  <!-- TV icon centered, 400 tall -->
+  <g transform="translate(575 35.6) scale(0.7519)">
+    <rect x="152" y="232" width="720" height="440" rx="68"
+        fill="none" stroke="url(#sGrad)" stroke-width="56" stroke-linejoin="round"/>
+    <rect x="488" y="672" width="48" height="48" fill="url(#sGrad)"/>
+    <rect x="376" y="720" width="272" height="44" rx="22" fill="url(#sGrad)"/>
+    <path d="M 439 348 Q 439 332 453 340 L 651 442 Q 667 450 651 460 L 453 564 Q 439 572 439 556 Z"
+          fill="url(#sGrad)" stroke="url(#sGrad)" stroke-width="20" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Wordmark centered, 200 cap height -->
+  <g transform="translate(397.2 672.8) scale(0.2849)" fill="url(#wmGrad)">
+    <g transform="scale(1 -1) translate(0 -702)">
+      <path d="M42 210H224Q228 171 251.0 150.5Q274 130 311 130Q349 130 371.0 147.5Q393 165 393 196Q393 222 375.5 239.0Q358 256 332.5 267.0Q307 278 260 292Q192 313 149.0 334.0Q106 355 75.0 396.0Q44 437 44 503Q44 601 115.0 656.5Q186 712 300 712Q416 712 487.0 656.5Q558 601 563 502H378Q376 536 353.0 555.5Q330 575 294 575Q263 575 244.0 558.5Q225 542 225 511Q225 477 257.0 458.0Q289 439 357 417Q425 394 467.5 373.0Q510 352 541.0 312.0Q572 272 572 209Q572 149 541.5 100.0Q511 51 453.0 22.0Q395 -7 316 -7Q239 -7 178.0 18.0Q117 43 80.5 92.0Q44 141 42 210Z" transform="translate(0, 0)"/>
+      <path d="M567 702V565H381V0H210V565H24V702Z" transform="translate(615, 0)"/>
+      <path d="M420 0 274 265H233V0H62V702H349Q432 702 490.5 673.0Q549 644 578.0 593.5Q607 543 607 481Q607 411 567.5 356.0Q528 301 451 278L613 0ZM233 386H339Q386 386 409.5 409.0Q433 432 433 474Q433 514 409.5 537.0Q386 560 339 560H233Z" transform="translate(1206, 0)"/>
+      <path d="M499 124H237L195 0H16L270 702H468L722 0H541ZM455 256 368 513 282 256Z" transform="translate(1858, 0)"/>
+      <path d="M567 702V565H381V0H210V565H24V702Z" transform="translate(2595, 0)"/>
+      <path d="M499 124H237L195 0H16L270 702H468L722 0H541ZM455 256 368 513 282 256Z" transform="translate(3186, 0)"/>
+    </g>
+  </g>
+</svg>

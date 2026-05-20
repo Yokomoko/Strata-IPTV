@@ -1,6 +1,8 @@
 package com.strata.tv.ui.shows
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -92,7 +94,10 @@ fun ShowsScreen(
             // -- Hero --------------------------------------------------------
             val hero = state.hero
             if (hero != null) {
-                ShowHero(show = hero)
+                ShowHero(
+                    show = hero,
+                    onClick = { onNavigate?.openShowDetail(hero.seriesTitle) },
+                )
             } else if (state.allShows.isEmpty()) {
                 ShimmerHero()
             }
@@ -239,11 +244,19 @@ private fun ShowPosterWithMenu(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun ShowHero(show: SeriesEntity) {
+private fun ShowHero(
+    show: SeriesEntity,
+    onClick: () -> Unit,
+) {
+    // Make the hero clickable + focusable so D-pad Up from the first
+    // genre rail lands here (instead of skipping past to the sidebar)
+    // and OK opens the show detail.
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(300.dp),
+            .height(300.dp)
+            .focusable()
+            .clickable(onClick = onClick),
     ) {
         val backdropUrl = show.backdropUrl.takeIf { it.isNotBlank() }
             ?: show.posterUrl.takeIf { it.isNotBlank() }

@@ -1,6 +1,8 @@
 package com.strata.tv.ui.movies
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -240,10 +242,15 @@ private fun MovieHero(
     movie: MovieListItem,
     onClick: () -> Unit,
 ) {
+    // Clickable + focusable so D-pad Up from the first rail lands on
+    // the hero (rather than skipping past to the sidebar), and OK
+    // opens the movie detail.
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(300.dp),
+            .height(300.dp)
+            .focusable()
+            .clickable(onClick = onClick),
     ) {
         // Backdrop
         val backdropUrl = movie.posterUrl.takeIf { it.isNotBlank() }

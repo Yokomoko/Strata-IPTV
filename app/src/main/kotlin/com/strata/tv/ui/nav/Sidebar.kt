@@ -74,7 +74,13 @@ fun Sidebar(
         modifier = modifier
             .fillMaxHeight()
             .width(56.dp)
-            .focusRequester(sidebarFocusRequester)
+            // NOTE: sidebarFocusRequester is NOT attached to the Column
+            // itself — calling requestFocus() on the Column would focus
+            // its first focusable child ("Home"), regardless of which
+            // destination is active.  Instead we attach the requester
+            // to the currently-selected SidebarItem below, so any caller
+            // ([com.strata.tv.ui.shows.ShowsScreen] / MoviesScreen exit
+            // route) lands focus on the active item.
             .background(
                 Brush.verticalGradient(
                     colorStops = arrayOf(
@@ -100,6 +106,10 @@ fun Sidebar(
                 destination = destination,
                 isSelected = destination == selected,
                 focusRequester = itemRequesters.getValue(destination),
+                // Bind the column-level "sidebar requester" to whichever
+                // item is selected so external callers focus the right
+                // tile when they invoke sidebarFocusRequester.requestFocus().
+                sidebarFocusRequester = sidebarFocusRequester.takeIf { destination == selected },
                 onClick = { onSelected(destination) },
             )
             Spacer(Modifier.height(4.dp))
@@ -123,6 +133,7 @@ private fun SidebarItem(
     destination: Destination,
     isSelected: Boolean,
     focusRequester: FocusRequester,
+    sidebarFocusRequester: FocusRequester? = null,
     onClick: () -> Unit,
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -135,6 +146,16 @@ private fun SidebarItem(
         modifier = Modifier
             .size(40.dp)
             .focusRequester(focusRequester)
+            // Attach the optional column-level requester to the
+            // currently-selected item so external D-pad-Up exits land
+            // here, not on the first sidebar entry.
+            .then(
+                if (sidebarFocusRequester != null) {
+                    Modifier.focusRequester(sidebarFocusRequester)
+                } else {
+                    Modifier
+                },
+            )
             .onFocusChanged { isFocused = it.isFocused }
             .then(
                 if (isFocused) Modifier.border(

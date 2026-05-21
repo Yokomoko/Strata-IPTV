@@ -172,8 +172,13 @@ class Me2uLicenseClient @Inject constructor(
 
     /**
      * Verify that a portal will actually serve the M3U playlist (not
-     * just accept credentials).  Uses a HEAD with a VLC User-Agent —
-     * mimics what the playlist sync will actually do.
+     * just accept credentials).  Uses a Range-GET of the first byte
+     * with a VLC User-Agent — mimics the real playlist sync, but
+     * doesn't actually download the whole M3U.
+     *
+     * HEAD would be simpler but many Cloudflare-protected IPTV panels
+     * reject HEAD requests while allowing GET (verified against
+     * lecyvision.com — HEAD returns 5xx, GET returns 200).
      */
     private fun testM3uReachable(
         host: String,
@@ -184,18 +189,22 @@ class Me2uLicenseClient @Inject constructor(
         val url = "$base/get.php?username=$username&password=$password&type=m3u_plus"
         val request = Request.Builder()
             .url(url)
-            .head()
             .header("User-Agent", "VLC/3.0.20 LibVLC/3.0.20")
             .header("Accept", "*/*")
             .header("Accept-Encoding", "identity")
+            .header("Range", "bytes=0-0")
             .build()
         return try {
             http.newCall(request).execute().use { resp ->
-                Log.i(TAG, "M3U HEAD ($base) → HTTP ${resp.code}")
+                Log.i(TAG, "M3U GET ($base) → HTTP ${resp.code}")
+                // Accept any 2xx including 206 Partial Content (Range
+                // response).  Some panels ignore Range and return 200
+                // with the full body — still a positive signal that
+                // the playlist is reachable.
                 resp.isSuccessful
             }
         } catch (t: Throwable) {
-            Log.w(TAG, "M3U HEAD ($base) threw: ${t.message}")
+            Log.w(TAG, "M3U GET ($base) threw: ${t.message}")
             false
         }
     }

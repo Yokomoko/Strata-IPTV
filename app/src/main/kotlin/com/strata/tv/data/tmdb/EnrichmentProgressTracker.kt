@@ -71,7 +71,17 @@ class EnrichmentProgressTracker @Inject constructor() {
      *  Don't set processed = total yet — persistence still needs to run.
      *  Cap at 90% so the ring doesn't flash 100% prematurely. */
     fun syncComplete(totalParsed: Int) {
-        _progress.update { it.copy(total = totalParsed, label = "Processing") }
+        _progress.update {
+            // Hold the ring at 90% during the persistence phase so it
+            // doesn't appear "Done" while sync is still committing rows.
+            // startEnrichment() will reset to 0/enrichmentTotal afterwards,
+            // and finish() lands at 100%.
+            it.copy(
+                processed = (totalParsed * 9 / 10).coerceAtLeast(0),
+                total = totalParsed.coerceAtLeast(1),
+                label = "Processing",
+            )
+        }
     }
 
     /** Switch to enrichment phase — resets counters.

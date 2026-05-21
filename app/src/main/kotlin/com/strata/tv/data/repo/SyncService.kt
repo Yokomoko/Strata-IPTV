@@ -26,10 +26,12 @@ import com.strata.tv.domain.MovieDeduplicator
 import com.strata.tv.domain.SkyChannelNumbers
 import com.strata.tv.domain.TitleParser
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -87,6 +89,16 @@ class SyncService @Inject constructor(
          */
         private const val MOVIES_FLUSH_THRESHOLD = 5000
         private const val EPISODES_FLUSH_THRESHOLD = 5000
+    }
+
+    /**
+     * Persist work unit drained by the background worker so the parser
+     * doesn't block on DB writes.  Channel capacity is 2 so the parser
+     * can run ~2 batches ahead before backpressure kicks in.
+     */
+    private sealed interface PersistJob {
+        data class Movies(val entries: List<M3uEntry>) : PersistJob
+        data class Shows(val entries: List<M3uEntry>) : PersistJob
     }
 
     private val _progress = MutableStateFlow<Progress>(Progress.Idle)
@@ -198,56 +210,91 @@ class SyncService @Inject constructor(
                         // playlist as a String (Fire Stick has ~512 MB
                         // app heap shared with ExoPlayer + Compose).
                         body.charStream().buffered().useLines { lines ->
-                            // Stream-persist movies + episodes as they parse
-                            // so we never hold the whole catalogue in memory.
-                            // Fire Stick clamps the foreground heap at 128 MB;
-                            // a 300k-entry library is ~120 MB of M3uEntry alone,
-                            // which OOMed sync on the 'Sorting your library' phase.
+                            // Stream-persist movies + episodes as they parse.
+                            // Persist runs on a separate IO coroutine drained
+                            // from a bounded Channel so the parser keeps
+                            // collecting from the network while writes happen.
+                            // Channel capacity 2 means peak in-flight buffers
+                            // are ~3 × MOVIES_FLUSH_THRESHOLD entries × 400 B
+                            // ≈ 6 MB — safely under the Fire Stick's 128 MB
+                            // heap clamp.
+                            //
+                            // useLines is `inline` so the lambda body is
+                            // inlined into the surrounding suspending function;
+                            // we can use coroutineScope / launch directly.
+                            // When this scope exits, the persist worker has
+                            // already been awaited.
+                            //
                             // Live channels stay buffered (typically <15k, and
                             // ChannelDeduplicator needs cross-batch view).
-                            val moviesBuf = ArrayList<M3uEntry>(MOVIES_FLUSH_THRESHOLD)
-                            val episodesBuf = ArrayList<M3uEntry>(EPISODES_FLUSH_THRESHOLD)
-                            parser.parseLines(lines).collect { result ->
-                                when (result) {
-                                    is ParseResult.Batch -> {
-                                        for (entry in result.entries) {
-                                            if (isExcluded(entry)) continue
-                                            when (entry.contentType) {
-                                                ContentType.Live -> live.add(entry)
-                                                ContentType.Movie -> {
-                                                    moviesBuf.add(entry)
-                                                    if (moviesBuf.size >= MOVIES_FLUSH_THRESHOLD) {
-                                                        persistMovies(moviesBuf, sourceId, playlistUrl)
-                                                        moviesBuf.clear()
+                            coroutineScope {
+                                    val persistChannel = kotlinx.coroutines.channels
+                                        .Channel<PersistJob>(capacity = 2)
+                                    val persistJob = launch(Dispatchers.IO) {
+                                        for (job in persistChannel) {
+                                            when (job) {
+                                                is PersistJob.Movies -> persistMovies(
+                                                    job.entries, sourceId, playlistUrl,
+                                                )
+                                                is PersistJob.Shows -> persistShows(
+                                                    job.entries, sourceId, playlistUrl,
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    val moviesBuf = ArrayList<M3uEntry>(MOVIES_FLUSH_THRESHOLD)
+                                    val episodesBuf = ArrayList<M3uEntry>(EPISODES_FLUSH_THRESHOLD)
+                                    try {
+                                        parser.parseLines(lines).collect { result ->
+                                            when (result) {
+                                                is ParseResult.Batch -> {
+                                                    for (entry in result.entries) {
+                                                        if (isExcluded(entry)) continue
+                                                        when (entry.contentType) {
+                                                            ContentType.Live -> live.add(entry)
+                                                            ContentType.Movie -> {
+                                                                moviesBuf.add(entry)
+                                                                if (moviesBuf.size >= MOVIES_FLUSH_THRESHOLD) {
+                                                                    persistChannel.send(
+                                                                        PersistJob.Movies(moviesBuf.toList()),
+                                                                    )
+                                                                    moviesBuf.clear()
+                                                                }
+                                                            }
+                                                            ContentType.Show -> {
+                                                                episodesBuf.add(entry)
+                                                                if (episodesBuf.size >= EPISODES_FLUSH_THRESHOLD) {
+                                                                    persistChannel.send(
+                                                                        PersistJob.Shows(episodesBuf.toList()),
+                                                                    )
+                                                                    episodesBuf.clear()
+                                                                }
+                                                            }
+                                                        }
                                                     }
+                                                    progressTracker.syncAdvance(result.entries.size)
                                                 }
-                                                ContentType.Show -> {
-                                                    episodesBuf.add(entry)
-                                                    if (episodesBuf.size >= EPISODES_FLUSH_THRESHOLD) {
-                                                        persistShows(episodesBuf, sourceId, playlistUrl)
-                                                        episodesBuf.clear()
-                                                    }
+                                                is ParseResult.Progress -> {
+                                                    _progress.value = Progress.Parsing(result.parsed, result.skipped)
+                                                }
+                                                is ParseResult.Complete -> {
+                                                    progressTracker.syncComplete(result.totalParsed)
                                                 }
                                             }
                                         }
-                                        progressTracker.syncAdvance(result.entries.size)
+                                        if (moviesBuf.isNotEmpty()) {
+                                            persistChannel.send(PersistJob.Movies(moviesBuf.toList()))
+                                            moviesBuf.clear()
+                                        }
+                                        if (episodesBuf.isNotEmpty()) {
+                                            persistChannel.send(PersistJob.Shows(episodesBuf.toList()))
+                                            episodesBuf.clear()
+                                        }
+                                    } finally {
+                                        persistChannel.close()
+                                        persistJob.join()
                                     }
-                                    is ParseResult.Progress -> {
-                                        _progress.value = Progress.Parsing(result.parsed, result.skipped)
-                                    }
-                                    is ParseResult.Complete -> {
-                                        progressTracker.syncComplete(result.totalParsed)
-                                    }
-                                }
-                            }
-                            // Flush remainders
-                            if (moviesBuf.isNotEmpty()) {
-                                persistMovies(moviesBuf, sourceId, playlistUrl)
-                                moviesBuf.clear()
-                            }
-                            if (episodesBuf.isNotEmpty()) {
-                                persistShows(episodesBuf, sourceId, playlistUrl)
-                                episodesBuf.clear()
                             }
                         }
                         false

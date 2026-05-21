@@ -53,6 +53,8 @@ fun SyncProgressScreen(
     progress: SyncService.Progress,
     enrichment: EnrichmentProgressTracker.Progress,
     onSkipToBackground: () -> Unit,
+    onRetry: () -> Unit,
+    onBackToWizard: () -> Unit,
 ) {
     val phases = listOf(
         Phase(
@@ -133,6 +135,7 @@ fun SyncProgressScreen(
 
             Spacer(Modifier.height(24.dp))
 
+            val isError = progress is SyncService.Progress.Error
             if (progress is SyncService.Progress.Error) {
                 Text(
                     text = "Sync failed: ${progress.message}",
@@ -153,33 +156,79 @@ fun SyncProgressScreen(
                 Spacer(Modifier.height(12.dp))
             }
 
-            Surface(
-                onClick = onSkipToBackground,
-                modifier = Modifier.focusRequester(skipFocusRequester),
-                shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
-                colors = ClickableSurfaceDefaults.colors(
-                    containerColor = StrataColors.SurfaceFloat,
-                    focusedContainerColor = StrataColors.AccentPrimary,
-                ),
-            ) {
-                Text(
-                    text = "Sync in background",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                )
+            // Buttons differ between in-progress and error states.
+            // In an error state we want the primary action to be "Retry"
+            // (so the user can re-try without going through Settings),
+            // with secondary actions for changing provider or skipping.
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (isError) {
+                    ActionButton(
+                        label = "Refresh library now",
+                        primary = true,
+                        focusRequester = skipFocusRequester,
+                        onClick = onRetry,
+                    )
+                    ActionButton(
+                        label = "Change provider",
+                        primary = false,
+                        onClick = onBackToWizard,
+                    )
+                    ActionButton(
+                        label = "Continue anyway",
+                        primary = false,
+                        onClick = onSkipToBackground,
+                    )
+                } else {
+                    ActionButton(
+                        label = "Sync in background",
+                        primary = true,
+                        focusRequester = skipFocusRequester,
+                        onClick = onSkipToBackground,
+                    )
+                }
             }
 
             Spacer(Modifier.height(8.dp))
 
             Text(
-                text = "Big libraries take a few minutes the first time. " +
-                    "Skip to background if you want to start exploring while it finishes.",
+                text = if (isError) {
+                    "Refresh tries the same provider again with different User-Agents; " +
+                        "Change provider takes you back to setup to use different credentials."
+                } else {
+                    "Big libraries take a few minutes the first time. " +
+                        "Skip to background if you want to start exploring while it finishes."
+                },
                 color = StrataColors.TextTertiary,
                 fontSize = 11.sp,
             )
         }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun ActionButton(
+    label: String,
+    primary: Boolean,
+    onClick: () -> Unit,
+    focusRequester: FocusRequester? = null,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier,
+        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (primary) StrataColors.SurfaceFloat else StrataColors.SurfaceRaised,
+            focusedContainerColor = StrataColors.AccentPrimary,
+        ),
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+        )
     }
 }
 

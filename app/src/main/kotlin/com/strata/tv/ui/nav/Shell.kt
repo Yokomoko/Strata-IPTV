@@ -81,7 +81,7 @@ fun Shell(
             return
         }
         com.strata.tv.ui.setup.GateStage.Wizard -> {
-            SetupWizardScreen(onFinished = { /* StateFlow re-emits, gate updates */ })
+            SetupWizardScreen(onFinished = { gateViewModel.clearForceWizard() })
             return
         }
         com.strata.tv.ui.setup.GateStage.FirstSync -> {
@@ -91,6 +91,8 @@ fun Shell(
                 progress = syncProgress,
                 enrichment = enrichProgress,
                 onSkipToBackground = { gateViewModel.skipToBackground() },
+                onRetry = { gateViewModel.retrySync() },
+                onBackToWizard = { gateViewModel.backToWizard() },
             )
             return
         }

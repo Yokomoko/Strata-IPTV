@@ -306,6 +306,19 @@ class SyncService @Inject constructor(
      * Returns the open [okhttp3.Response] — the caller is responsible
      * for closing it (via `.use { ... }` etc).
      */
+    /**
+     * Per-request OkHttp client that forces HTTP/1.1 (some Cloudflare-
+     * protected panels — lecyvision.com — return HTTP 512 to OkHttp's
+     * HTTP/2 connections but accept HTTP/1.1 with a VLC-style header
+     * set fine).  Built lazily from the shared client so connection
+     * pool + timeouts are inherited.
+     */
+    private val playlistHttp: OkHttpClient by lazy {
+        http.newBuilder()
+            .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
+            .build()
+    }
+
     private fun fetchPlaylistWithRetry(
         url: String,
         preferredUserAgent: String?,
@@ -336,13 +349,19 @@ class SyncService @Inject constructor(
         for (ua in strategies) {
             val label = ua ?: "(none)"
             try {
-                val builder = Request.Builder().url(url)
+                val builder = Request.Builder()
+                    .url(url)
+                    // Mimic what VLC + browsers send so Cloudflare-WAF
+                    // panels don't reject us on "missing Accept" rules.
+                    .header("Accept", "*/*")
+                    .header("Accept-Encoding", "identity")
+                    .header("Connection", "close")
                 if (ua != null) {
                     builder.header("User-Agent", ua)
                 } else {
                     builder.removeHeader("User-Agent")
                 }
-                val response = http.newCall(builder.build()).execute()
+                val response = playlistHttp.newCall(builder.build()).execute()
                 if (response.isSuccessful) {
                     android.util.Log.i(
                         "SyncService",

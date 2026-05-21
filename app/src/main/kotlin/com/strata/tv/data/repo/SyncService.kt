@@ -153,8 +153,7 @@ class SyncService @Inject constructor(
             // universal Xtream interface.
             val provider = settings.provider
             val useJsonApi = withContext(Dispatchers.IO) {
-                http.newCall(Request.Builder().url(playlistUrl).build())
-                    .execute()
+                fetchPlaylistWithRetry(playlistUrl, provider.apiUserAgent())
                     .use { response ->
                         if (!response.isSuccessful) {
                             error("HTTP ${response.code} fetching $playlistUrl")
@@ -290,6 +289,87 @@ class SyncService @Inject constructor(
             _progress.value = Progress.Error(msg)
             throw e
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // HTTP helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Fetch the playlist URL, retrying with a different User-Agent on
+     * each failure.  Some IPTV panels (lecyvision.com — Me2u Ultra Sky's
+     * Ultra portal — is a known offender) reject the default
+     * `okhttp/4.x` UA with HTTP 5xx, but accept a stripped UA, VLC, or
+     * a browser UA.  This walks a small list of common UAs until one
+     * returns 2xx.
+     *
+     * Returns the open [okhttp3.Response] — the caller is responsible
+     * for closing it (via `.use { ... }` etc).
+     */
+    private fun fetchPlaylistWithRetry(
+        url: String,
+        preferredUserAgent: String?,
+    ): okhttp3.Response {
+        // Order matters: try the provider's preferred UA first (works
+        // for the majority of panels), then fall back to alternatives
+        // that have been observed to bypass anti-bot filters.
+        val strategies: List<String?> = buildList {
+            preferredUserAgent?.takeIf { it.isNotBlank() }?.let { add(it) }
+            // VLC — almost-universal fallback.  Verified to work on
+            // lecyvision.com, le.thund.re, MyBunny.TV, Cloudflare panels.
+            if ("VLC" !in preferredUserAgent.orEmpty()) {
+                add("VLC/3.0.20 LibVLC/3.0.20")
+            }
+            // okhttp default — works on le.thund.re and most older
+            // panels.  Skipped if it was already the preferred UA.
+            if (preferredUserAgent != "okhttp/4.12.0") {
+                add("okhttp/4.12.0")
+            }
+            // Fire Stick browser UA — last resort, mimics Silk.
+            add("Mozilla/5.0 (Linux; Android 9; AFTMM Build/PS7233) AppleWebKit/537.36")
+            // Empty UA last — known to 403 on lecyvision/le.thund.re,
+            // but occasionally needed for the strictest Cloudflare rules.
+            add(null)
+        }
+
+        var lastError: Throwable? = null
+        for (ua in strategies) {
+            val label = ua ?: "(none)"
+            try {
+                val builder = Request.Builder().url(url)
+                if (ua != null) {
+                    builder.header("User-Agent", ua)
+                } else {
+                    builder.removeHeader("User-Agent")
+                }
+                val response = http.newCall(builder.build()).execute()
+                if (response.isSuccessful) {
+                    android.util.Log.i(
+                        "SyncService",
+                        "Playlist fetched OK with UA='$label'",
+                    )
+                    return response
+                }
+                val code = response.code
+                response.close()
+                lastError = IllegalStateException("HTTP $code (UA='$label')")
+                android.util.Log.w(
+                    "SyncService",
+                    "Playlist UA='$label' got HTTP $code — trying next",
+                )
+            } catch (t: Throwable) {
+                lastError = t
+                android.util.Log.w(
+                    "SyncService",
+                    "Playlist UA='$label' threw ${t.message} — trying next",
+                )
+            }
+        }
+        throw IllegalStateException(
+            "Playlist fetch failed for all User-Agent strategies " +
+                "(${strategies.size} tried). Last error: ${lastError?.message}",
+            lastError,
+        )
     }
 
     // -------------------------------------------------------------------------

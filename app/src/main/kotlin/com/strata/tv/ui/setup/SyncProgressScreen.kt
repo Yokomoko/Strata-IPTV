@@ -21,18 +21,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.Image
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.strata.tv.R
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Surface
@@ -95,34 +90,6 @@ fun SyncProgressScreen(
             .background(StrataColors.SurfaceVoid),
         contentAlignment = Alignment.CenterStart,
     ) {
-        // -- Full-bleed Strata brand background ------------------------
-        // The SVG ships a centered STRATA wordmark + TV icon already,
-        // so the foreground content drops the redundant "Strata TV"
-        // header and shifts to the left half of the screen so it
-        // doesn't fight the centerpiece.
-        Image(
-            painter = painterResource(R.drawable.splash_bg),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-        // Dark gradient overlay on the left third so the progress text
-        // has enough contrast against the gradient background.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    brush = Brush.horizontalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.65f),
-                            Color.Black.copy(alpha = 0.0f),
-                        ),
-                        startX = 0f,
-                        endX = 1200f,
-                    ),
-                ),
-        )
-
         Column(
             modifier = Modifier.widthIn(max = 680.dp).padding(48.dp),
             horizontalAlignment = Alignment.Start,

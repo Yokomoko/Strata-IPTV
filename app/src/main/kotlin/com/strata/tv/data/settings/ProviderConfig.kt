@@ -103,7 +103,11 @@ data class ProviderConfig(
      *   to MyBunny preset if they want the VLC UA.
      */
     fun apiUserAgent(): String = when (providerId) {
-        "mybunny_tv" -> "VLC/3.0.20 LibVLC/3.0.20"
+        // VLC is universally accepted: MyBunny.TV explicitly needs it,
+        // Me2u Ultra Sky's Ultra portal (lecyvision.com) hangs on
+        // okhttp/4.12.0 but serves 200 with VLC, and le.thund.re/all
+        // SkyGlass portals also accept it.
+        "mybunny_tv", "me2u" -> "VLC/3.0.20 LibVLC/3.0.20"
         else -> "okhttp/4.12.0"
     }
 }

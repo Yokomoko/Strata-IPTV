@@ -108,7 +108,12 @@ class LibraryFilterRepository @Inject constructor(
 
         var flipped = 0
 
-        // Movies — load with full entity to read year/language/genre/hidden.
+        // Movies — load full entities so we can read year/language/genre.
+        // Loaded all-at-once because Room's allIncludingHidden() is a
+        // single SELECT and we apply hide/show in a couple of IN-list
+        // updates afterwards.  For very large libraries this still
+        // means a transient MovieEntity list of 50k+ rows in memory;
+        // worst case ~30 MB which the heap can take post-sync.
         val allMovies = movieDao.allIncludingHidden()
         val movieToHide = mutableListOf<Int>()
         val movieToShow = mutableListOf<Int>()
@@ -118,8 +123,11 @@ class LibraryFilterRepository @Inject constructor(
             if (should && !m.hidden) movieToHide += m.id
             else if (!should && m.hidden) movieToShow += m.id
         }
-        if (movieToHide.isNotEmpty()) movieDao.hideByIds(movieToHide).also { flipped += movieToHide.size }
-        if (movieToShow.isNotEmpty()) movieDao.showByIds(movieToShow).also { flipped += movieToShow.size }
+        // Chunk the IN-list updates — SQLite's parameter limit is 999
+        // by default, and very large IN-lists also spike query plan
+        // memory.  500 ids per chunk is safely below both limits.
+        for (chunk in movieToHide.chunked(500)) movieDao.hideByIds(chunk).also { flipped += chunk.size }
+        for (chunk in movieToShow.chunked(500)) movieDao.showByIds(chunk).also { flipped += chunk.size }
 
         // Series — same logic on first_air_year + language + genre.
         val allSeries = seriesDao.allIncludingHidden()
@@ -131,8 +139,8 @@ class LibraryFilterRepository @Inject constructor(
             if (should && !s2.hidden) seriesToHide += s2.id
             else if (!should && s2.hidden) seriesToShow += s2.id
         }
-        if (seriesToHide.isNotEmpty()) seriesDao.hideByIds(seriesToHide).also { flipped += seriesToHide.size }
-        if (seriesToShow.isNotEmpty()) seriesDao.showByIds(seriesToShow).also { flipped += seriesToShow.size }
+        for (chunk in seriesToHide.chunked(500)) seriesDao.hideByIds(chunk).also { flipped += chunk.size }
+        for (chunk in seriesToShow.chunked(500)) seriesDao.showByIds(chunk).also { flipped += chunk.size }
 
         Log.i(
             TAG,

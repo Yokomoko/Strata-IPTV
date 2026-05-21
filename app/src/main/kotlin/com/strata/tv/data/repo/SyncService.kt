@@ -257,14 +257,30 @@ class SyncService @Inject constructor(
             _progress.value = Progress.PostProcessing
 
             persistLive(live, sourceId, playlistUrl)
+            // Release the M3uEntry references as soon as each persist
+            // completes — for large libraries (300k+ entries seen in
+            // the wild) holding all three lists at once + the inner
+            // contentRows/movieRows allocations blows the Fire Stick
+            // ~256-512 MB foreground heap.
+            live.clear()
             persistMovies(movies, sourceId, playlistUrl)
+            movies.clear()
             persistShows(episodes, sourceId, playlistUrl)
+            episodes.clear()
             persistSeriesCatalogue(seriesMetaToPersist)
 
             // Re-apply language / genre / year filters after every sync.
             // @Upsert resets hidden=false on every row, so already-enriched
             // foreign content would reappear without this call.
-            libraryFilter.recomputeHiddenFlags()
+            // Wrapped in runCatching: this is best-effort cleanup; if it
+            // fails (e.g. low memory after a huge sync) the sync still
+            // counts as Done and the user can use the app.  A failure
+            // here just means foreign content might show until the next
+            // settings change re-triggers the recompute.
+            runCatching { libraryFilter.recomputeHiddenFlags() }
+                .onFailure { e ->
+                    android.util.Log.w("SyncService", "recomputeHiddenFlags failed: ${e.message}", e)
+                }
 
             _progress.value = Progress.Done(
                 totalParsed = live.size + movies.size + episodes.size,
@@ -410,51 +426,54 @@ class SyncService @Inject constructor(
             withTvgId = { e, id -> e.copy(tvgId = id) },
         )
 
-        val contentRows = mutableListOf<ContentItemEntity>()
-        val channelRows = mutableListOf<ChannelEntity>()
+        // Chunked persist — see persistMovies for rationale.
+        for (chunk in deduped.chunked(2000)) {
+            val contentRows = ArrayList<ContentItemEntity>(chunk.size)
+            val channelRows = ArrayList<ChannelEntity>(chunk.size)
 
-        for (entry in deduped) {
-            val contentId = ContentIdHasher.hash(
-                sourceKey = sourceKey,
-                normalisedTitle = TitleParser.normalise(
-                    ChannelDeduplicator.cleanChannelName(entry.displayName),
-                ),
-                groupTitle = entry.groupTitle,
-                streamUrl = entry.streamUrl,
-            )
-
-            contentRows.add(
-                ContentItemEntity(
-                    contentId = contentId,
-                    sourceId = sourceId,
-                    displayName = entry.displayName,
-                    streamUrl = entry.streamUrl,
-                    groupTitle = entry.groupTitle,
-                    contentType = "live",
-                    tvgId = entry.tvgId,
-                    tvgName = entry.tvgName,
-                    tvgLogo = entry.tvgLogo,
-                    tvgType = entry.tvgType,
-                ),
-            )
-
-            channelRows.add(
-                ChannelEntity(
-                    contentId = contentId,
-                    category = ChannelCategorizer.categorise(entry.displayName, entry.groupTitle),
-                    logoUrl = entry.tvgLogo,
-                    channelNumber = SkyChannelNumbers.numberFor(
+            for (entry in chunk) {
+                val contentId = ContentIdHasher.hash(
+                    sourceKey = sourceKey,
+                    normalisedTitle = TitleParser.normalise(
                         ChannelDeduplicator.cleanChannelName(entry.displayName),
-                    ).takeIf { it != SkyChannelNumbers.UNKNOWN },
-                ),
-            )
-        }
+                    ),
+                    groupTitle = entry.groupTitle,
+                    streamUrl = entry.streamUrl,
+                )
 
-        // Single transaction so a kill between the two upserts can't
-        // leave `content_items` rows with no matching `channels` row.
-        db.withTransaction {
-            contentDao.upsertAll(contentRows)
-            channelDao.upsertAll(channelRows)
+                contentRows.add(
+                    ContentItemEntity(
+                        contentId = contentId,
+                        sourceId = sourceId,
+                        displayName = entry.displayName,
+                        streamUrl = entry.streamUrl,
+                        groupTitle = entry.groupTitle,
+                        contentType = "live",
+                        tvgId = entry.tvgId,
+                        tvgName = entry.tvgName,
+                        tvgLogo = entry.tvgLogo,
+                        tvgType = entry.tvgType,
+                    ),
+                )
+
+                channelRows.add(
+                    ChannelEntity(
+                        contentId = contentId,
+                        category = ChannelCategorizer.categorise(entry.displayName, entry.groupTitle),
+                        logoUrl = entry.tvgLogo,
+                        channelNumber = SkyChannelNumbers.numberFor(
+                            ChannelDeduplicator.cleanChannelName(entry.displayName),
+                        ).takeIf { it != SkyChannelNumbers.UNKNOWN },
+                    ),
+                )
+            }
+
+            // One transaction per chunk so a kill between the two upserts
+            // can't leave `content_items` rows with no matching `channels`.
+            db.withTransaction {
+                contentDao.upsertAll(contentRows)
+                channelDao.upsertAll(channelRows)
+            }
         }
     }
 
@@ -463,45 +482,51 @@ class SyncService @Inject constructor(
         sourceId: Int,
         sourceKey: String,
     ) {
-        val contentRows = mutableListOf<ContentItemEntity>()
-        val movieRows = mutableListOf<MovieEntity>()
+        // Chunk the persist so peak memory stays bounded even on very
+        // large catalogues (300k+ entries seen on premium IPTV panels).
+        // 2000 × ~250 bytes ≈ 500 KB per intermediate list × 2 tables
+        // ≈ 1 MB peak — vs. 200+ MB without chunking.
+        for (chunk in entries.chunked(2000)) {
+            val contentRows = ArrayList<ContentItemEntity>(chunk.size)
+            val movieRows = ArrayList<MovieEntity>(chunk.size)
 
-        for (entry in entries) {
-            val title = entry.movieTitle ?: TitleParser.stripHdPrefix(entry.displayName)
-            val contentId = ContentIdHasher.hash(
-                sourceKey = sourceKey,
-                normalisedTitle = TitleParser.normalise(title),
-                groupTitle = entry.groupTitle,
-                streamUrl = entry.streamUrl,
-            )
-
-            contentRows.add(
-                ContentItemEntity(
-                    contentId = contentId,
-                    sourceId = sourceId,
-                    displayName = entry.displayName,
-                    streamUrl = entry.streamUrl,
+            for (entry in chunk) {
+                val title = entry.movieTitle ?: TitleParser.stripHdPrefix(entry.displayName)
+                val contentId = ContentIdHasher.hash(
+                    sourceKey = sourceKey,
+                    normalisedTitle = TitleParser.normalise(title),
                     groupTitle = entry.groupTitle,
-                    contentType = "movie",
-                    tvgId = entry.tvgId,
-                    tvgName = entry.tvgName,
-                    tvgLogo = entry.tvgLogo,
-                    tvgType = entry.tvgType,
-                    title = title,
-                ),
-            )
-            movieRows.add(
-                MovieEntity(
-                    contentId = contentId,
-                    movieTitle = title,
-                    year = entry.movieYear,
-                ),
-            )
-        }
+                    streamUrl = entry.streamUrl,
+                )
 
-        db.withTransaction {
-            contentDao.upsertAll(contentRows)
-            movieDao.upsertAll(movieRows)
+                contentRows.add(
+                    ContentItemEntity(
+                        contentId = contentId,
+                        sourceId = sourceId,
+                        displayName = entry.displayName,
+                        streamUrl = entry.streamUrl,
+                        groupTitle = entry.groupTitle,
+                        contentType = "movie",
+                        tvgId = entry.tvgId,
+                        tvgName = entry.tvgName,
+                        tvgLogo = entry.tvgLogo,
+                        tvgType = entry.tvgType,
+                        title = title,
+                    ),
+                )
+                movieRows.add(
+                    MovieEntity(
+                        contentId = contentId,
+                        movieTitle = title,
+                        year = entry.movieYear,
+                    ),
+                )
+            }
+
+            db.withTransaction {
+                contentDao.upsertAll(contentRows)
+                movieDao.upsertAll(movieRows)
+            }
         }
     }
 
@@ -517,11 +542,26 @@ class SyncService @Inject constructor(
             .filter { it.seriesTitle != null }
             .groupBy { TitleParser.normalise(it.seriesTitle!!) }
 
-        val contentRows = mutableListOf<ContentItemEntity>()
-        val seriesRows = mutableListOf<SeriesEntity>()
-        val episodeRows = mutableListOf<EpisodeEntity>()
+        // Process series-groups in chunks of 100 so the intermediate
+        // contentRows / seriesRows / episodeRows lists never hold more
+        // than ~10k objects at a time (100 series × ~100 episodes/series).
+        // Keeps peak memory bounded even for 5000+ series libraries.
+        val seriesChunks = grouped.entries.chunked(100)
+        for (seriesChunk in seriesChunks) {
+            persistShowsChunk(seriesChunk, sourceId, sourceKey)
+        }
+    }
 
-        for ((normalisedTitle, episodesForSeries) in grouped) {
+    private suspend fun persistShowsChunk(
+        seriesChunk: List<Map.Entry<String, List<M3uEntry>>>,
+        sourceId: Int,
+        sourceKey: String,
+    ) {
+        val contentRows = ArrayList<ContentItemEntity>(seriesChunk.size * 50)
+        val seriesRows = ArrayList<SeriesEntity>(seriesChunk.size)
+        val episodeRows = ArrayList<EpisodeEntity>(seriesChunk.size * 50)
+
+        for ((normalisedTitle, episodesForSeries) in seriesChunk) {
             val first = episodesForSeries.first()
             val titleForSeries = first.seriesTitle!!.trim()
 

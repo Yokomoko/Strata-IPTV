@@ -124,6 +124,8 @@ class Me2uLicenseClient @Inject constructor(
         username: String,
         password: String,
     ): Portal? = withContext(Dispatchers.IO) {
+        // First pass: find portals that accept the credentials.
+        val authOk = mutableListOf<Portal>()
         for (portal in portals) {
             val host = portal.url.trimEnd('/')
             val authUrl = "$host/player_api.php?username=$username&password=$password"
@@ -136,20 +138,66 @@ class Me2uLicenseClient @Inject constructor(
                     val body = resp.body?.string().orEmpty()
                     Log.i(
                         TAG,
-                        "Probe '${portal.name}' (${portal.url}) HTTP ${resp.code} " +
+                        "Auth probe '${portal.name}' (${portal.url}) HTTP ${resp.code} " +
                             "preview=${body.take(120)}",
                     )
                     if (!resp.isSuccessful) return@use
                     if (body.contains("\"auth\":1") || body.contains("\"auth\": 1")) {
-                        Log.i(TAG, "Portal '${portal.name}' accepted creds")
-                        return@withContext portal
+                        authOk += portal
                     }
                 }
             } catch (t: Throwable) {
-                Log.w(TAG, "Probe '${portal.name}' failed: ${t.message}")
+                Log.w(TAG, "Auth probe '${portal.name}' failed: ${t.message}")
             }
         }
-        null
+
+        // Second pass: out of the portals that authenticate, find one
+        // that also serves the M3U playlist.  Some Me2u portals
+        // (lecyvision.com on certain ISPs/devices) reply auth:1 but
+        // return HTTP 512 on get.php?type=m3u_plus — picking that one
+        // gets the user into a sync-error loop with no way out.  We
+        // verify with a HEAD request before committing.
+        for (portal in authOk) {
+            if (testM3uReachable(portal.url, username, password)) {
+                Log.i(TAG, "Portal '${portal.name}' accepted creds AND serves M3U")
+                return@withContext portal
+            }
+            Log.w(TAG, "Portal '${portal.name}' auth OK but M3U blocked — trying next")
+        }
+        // Last resort: if nothing passes the M3U test (network might
+        // be flaky), fall back to the first auth-OK portal anyway so
+        // the user can at least get into the app and refresh later.
+        authOk.firstOrNull()
+    }
+
+    /**
+     * Verify that a portal will actually serve the M3U playlist (not
+     * just accept credentials).  Uses a HEAD with a VLC User-Agent —
+     * mimics what the playlist sync will actually do.
+     */
+    private fun testM3uReachable(
+        host: String,
+        username: String,
+        password: String,
+    ): Boolean {
+        val base = host.trimEnd('/')
+        val url = "$base/get.php?username=$username&password=$password&type=m3u_plus"
+        val request = Request.Builder()
+            .url(url)
+            .head()
+            .header("User-Agent", "VLC/3.0.20 LibVLC/3.0.20")
+            .header("Accept", "*/*")
+            .header("Accept-Encoding", "identity")
+            .build()
+        return try {
+            http.newCall(request).execute().use { resp ->
+                Log.i(TAG, "M3U HEAD ($base) → HTTP ${resp.code}")
+                resp.isSuccessful
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "M3U HEAD ($base) threw: ${t.message}")
+            false
+        }
     }
 
     // ------------------------------------------------------------------

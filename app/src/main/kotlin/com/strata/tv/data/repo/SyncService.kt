@@ -77,6 +77,18 @@ class SyncService @Inject constructor(
         data class Error(val message: String) : Progress
     }
 
+    companion object {
+        /**
+         * Stream-persist thresholds.  Movies + episodes are flushed to
+         * Room every N parsed entries instead of buffered to end-of-file.
+         * 5000 × ~400-byte M3uEntry ≈ 2 MB peak per buffer — vs. ~120 MB
+         * for an unbounded 300k-entry library that was blowing the
+         * Fire Stick's 128 MB foreground heap.
+         */
+        private const val MOVIES_FLUSH_THRESHOLD = 5000
+        private const val EPISODES_FLUSH_THRESHOLD = 5000
+    }
+
     private val _progress = MutableStateFlow<Progress>(Progress.Idle)
     val progress: StateFlow<Progress> = _progress.asStateFlow()
 
@@ -136,9 +148,11 @@ class SyncService @Inject constructor(
                 return false
             }
 
-            // Buffer entries by content type so we can group + dedupe at
-            // the end.  Dedup needs the full live list before it can
-            // pick the best variant per logical channel.
+            // Live channels stay buffered for cross-batch dedup (typically
+            // a few thousand entries).  Movies + episodes are stream-
+            // persisted during parse — see the parser collector below.
+            // For the JSON fallback (`useJsonApi == true`) we still buffer
+            // movies + episodes since the XtreamSnapshot is in-memory anyway.
             val live = mutableListOf<M3uEntry>()
             val movies = mutableListOf<M3uEntry>()
             val episodes = mutableListOf<M3uEntry>()
@@ -184,6 +198,15 @@ class SyncService @Inject constructor(
                         // playlist as a String (Fire Stick has ~512 MB
                         // app heap shared with ExoPlayer + Compose).
                         body.charStream().buffered().useLines { lines ->
+                            // Stream-persist movies + episodes as they parse
+                            // so we never hold the whole catalogue in memory.
+                            // Fire Stick clamps the foreground heap at 128 MB;
+                            // a 300k-entry library is ~120 MB of M3uEntry alone,
+                            // which OOMed sync on the 'Sorting your library' phase.
+                            // Live channels stay buffered (typically <15k, and
+                            // ChannelDeduplicator needs cross-batch view).
+                            val moviesBuf = ArrayList<M3uEntry>(MOVIES_FLUSH_THRESHOLD)
+                            val episodesBuf = ArrayList<M3uEntry>(EPISODES_FLUSH_THRESHOLD)
                             parser.parseLines(lines).collect { result ->
                                 when (result) {
                                     is ParseResult.Batch -> {
@@ -191,8 +214,20 @@ class SyncService @Inject constructor(
                                             if (isExcluded(entry)) continue
                                             when (entry.contentType) {
                                                 ContentType.Live -> live.add(entry)
-                                                ContentType.Movie -> movies.add(entry)
-                                                ContentType.Show -> episodes.add(entry)
+                                                ContentType.Movie -> {
+                                                    moviesBuf.add(entry)
+                                                    if (moviesBuf.size >= MOVIES_FLUSH_THRESHOLD) {
+                                                        persistMovies(moviesBuf, sourceId, playlistUrl)
+                                                        moviesBuf.clear()
+                                                    }
+                                                }
+                                                ContentType.Show -> {
+                                                    episodesBuf.add(entry)
+                                                    if (episodesBuf.size >= EPISODES_FLUSH_THRESHOLD) {
+                                                        persistShows(episodesBuf, sourceId, playlistUrl)
+                                                        episodesBuf.clear()
+                                                    }
+                                                }
                                             }
                                         }
                                         progressTracker.syncAdvance(result.entries.size)
@@ -204,6 +239,15 @@ class SyncService @Inject constructor(
                                         progressTracker.syncComplete(result.totalParsed)
                                     }
                                 }
+                            }
+                            // Flush remainders
+                            if (moviesBuf.isNotEmpty()) {
+                                persistMovies(moviesBuf, sourceId, playlistUrl)
+                                moviesBuf.clear()
+                            }
+                            if (episodesBuf.isNotEmpty()) {
+                                persistShows(episodesBuf, sourceId, playlistUrl)
+                                episodesBuf.clear()
                             }
                         }
                         false
@@ -257,16 +301,19 @@ class SyncService @Inject constructor(
             _progress.value = Progress.PostProcessing
 
             persistLive(live, sourceId, playlistUrl)
-            // Release the M3uEntry references as soon as each persist
-            // completes — for large libraries (300k+ entries seen in
-            // the wild) holding all three lists at once + the inner
-            // contentRows/movieRows allocations blows the Fire Stick
-            // ~256-512 MB foreground heap.
             live.clear()
-            persistMovies(movies, sourceId, playlistUrl)
-            movies.clear()
-            persistShows(episodes, sourceId, playlistUrl)
-            episodes.clear()
+            // movies/episodes are only populated on the JSON-API path
+            // (XtreamSnapshot already in memory).  For the M3U path
+            // they're empty here because we stream-persisted during
+            // parse to keep peak heap under the Fire Stick's 128 MB clamp.
+            if (movies.isNotEmpty()) {
+                persistMovies(movies, sourceId, playlistUrl)
+                movies.clear()
+            }
+            if (episodes.isNotEmpty()) {
+                persistShows(episodes, sourceId, playlistUrl)
+                episodes.clear()
+            }
             persistSeriesCatalogue(seriesMetaToPersist)
 
             // Re-apply language / genre / year filters after every sync.

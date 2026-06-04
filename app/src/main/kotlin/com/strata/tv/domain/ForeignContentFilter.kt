@@ -62,6 +62,18 @@ object ForeignContentFilter {
         "hungarian" to "HU", "hungary" to "HU",
         "czech" to "CZ",
         "bulgarian" to "BG", "bulgaria" to "BG",
+        // Short ISO-ish codes that providers use as bare category names
+        // or "RO | …" prefixes.  Only codes that AREN'T common English
+        // words are listed (so no "in"/"it"/"no"/"is" false positives);
+        // the word-boundary check in countryFor keeps them from matching
+        // inside longer words.
+        "ro" to "RO", "sr" to "RS", "rs" to "RS", "tr" to "TR",
+        "fr" to "FR", "de" to "DE", "es" to "ES", "pt" to "PT",
+        "pl" to "PL", "cz" to "CZ", "hu" to "HU", "gr" to "GR",
+        "fi" to "FI", "ru" to "RU", "ir" to "IR", "nl" to "NL",
+        "se" to "SE", "dk" to "DK", "th" to "TH", "cn" to "CN",
+        "jp" to "JP", "kr" to "KR", "vn" to "VN", "il" to "IL",
+        "pk" to "PK", "af" to "AF", "ph" to "PH", "al" to "AL",
     )
 
     /**

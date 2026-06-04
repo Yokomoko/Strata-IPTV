@@ -121,16 +121,25 @@ class LibraryFilterRepository @Inject constructor(
         // updates afterwards.  For very large libraries this still
         // means a transient MovieEntity list of 50k+ rows in memory;
         // worst case ~30 MB which the heap can take post-sync.
-        val allMovies = movieDao.allIncludingHidden()
+        val allMovies = movieDao.allForFilterRecompute()
         val movieToHide = mutableListOf<Int>()
         val movieToShow = mutableListOf<Int>()
         for (m in allMovies) {
-            if (m.tmdbId == 0) continue
-            // Effective hide = filter rule OR sticky manual ignore.  The
-            // userHidden term is what stops a manual "Ignore film" from
-            // being resurrected here when its language/genre/year would
-            // otherwise pass the filters.
-            val should = shouldHideByFilters(m.language, m.genre, m.year) || m.userHidden
+            // Foreign-category + year filters work even on UNENRICHED
+            // movies (tmdb_id == 0): an old foreign film TMDB never matched
+            // still has its category (content_items.group_title) and often
+            // a year parsed from its title — so "Kid Colter (1984)" can be
+            // dropped by the >1990 filter, and a "Hindi"/"RO" category by
+            // the foreign filter, without waiting for enrichment.
+            val foreignExcluded = com.strata.tv.domain.ForeignContentFilter
+                .shouldExclude(m.groupTitle, countryWhitelist)
+            val tooOld = minYear > 0 && m.year != null && m.year < minYear
+            val should = if (m.tmdbId == 0) {
+                foreignExcluded || tooOld || m.userHidden
+            } else {
+                shouldHideByFilters(m.language, m.genre, m.year) ||
+                    m.userHidden || foreignExcluded
+            }
             if (should && !m.hidden) movieToHide += m.id
             else if (!should && m.hidden) movieToShow += m.id
         }

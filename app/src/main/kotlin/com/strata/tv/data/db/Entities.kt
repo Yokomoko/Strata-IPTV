@@ -158,6 +158,24 @@ data class MovieListItem(
     @ColumnInfo(name = "hidden") val hidden: Boolean,
 )
 
+/**
+ * Minimal projection for the filter recompute — pairs each movie's
+ * filter-relevant columns with its `content_items.group_title` (which
+ * lives on the content row, not the movie row) so the recompute can
+ * apply the foreign-category filter to movies the same way it does for
+ * series.  Keeps the recompute off the heavy text columns.
+ */
+data class MovieFilterRow(
+    val id: Int,
+    @ColumnInfo(name = "year") val year: Int?,
+    @ColumnInfo(name = "language") val language: String,
+    @ColumnInfo(name = "genre") val genre: String,
+    @ColumnInfo(name = "tmdbId") val tmdbId: Int,
+    @ColumnInfo(name = "hidden") val hidden: Boolean,
+    @ColumnInfo(name = "userHidden") val userHidden: Boolean,
+    @ColumnInfo(name = "groupTitle") val groupTitle: String,
+)
+
 // ---------------------------------------------------------------------------
 // Series — TV series header, joined to episodes by `series_title`.
 // ---------------------------------------------------------------------------

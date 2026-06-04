@@ -397,6 +397,21 @@ interface MovieDao {
     @Query("SELECT * FROM movies")
     suspend fun allIncludingHidden(): List<MovieEntity>
 
+    /**
+     * Filter-recompute projection: each movie's filter columns + its
+     * content_items.group_title (for the foreign-category filter).
+     * LEFT JOIN so a movie with no content row still appears.
+     */
+    @Query(
+        """
+        SELECT m.id AS id, m.year AS year, m.language AS language, m.genre AS genre,
+               m.tmdb_id AS tmdbId, m.hidden AS hidden, m.user_hidden AS userHidden,
+               COALESCE(c.group_title, '') AS groupTitle
+        FROM movies m LEFT JOIN content_items c ON m.content_id = c.content_id
+        """,
+    )
+    suspend fun allForFilterRecompute(): List<MovieFilterRow>
+
     /** Set the hidden flag on a single movie by row ID. */
     @Query("UPDATE movies SET hidden = :hidden WHERE id = :id")
     suspend fun setHidden(id: Int, hidden: Boolean)

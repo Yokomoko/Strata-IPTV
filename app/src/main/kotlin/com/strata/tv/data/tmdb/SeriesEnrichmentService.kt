@@ -276,7 +276,8 @@ class SeriesEnrichmentService @Inject constructor(
 
     companion object {
         private const val TAG = "SeriesEnrichment"
-        private const val PACE_MS = 50L
+        // TMDB's old hard rate limit is gone; a shorter pace is safe.
+        private const val PACE_MS = 25L
 
         /**
          * Extracts the US content rating from TMDB's `content_ratings`

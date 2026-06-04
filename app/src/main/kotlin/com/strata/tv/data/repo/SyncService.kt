@@ -631,6 +631,11 @@ class SyncService @Inject constructor(
                         contentId = contentId,
                         movieTitle = title,
                         year = entry.movieYear,
+                        // Provider poster + rating filled instantly so the
+                        // library isn't blank pre-TMDB.  TMDB later upgrades
+                        // these if it finds a (better) match.
+                        posterUrl = entry.posterUrl,
+                        rating = entry.rating ?: 0.0,
                     ),
                 )
             }
@@ -642,10 +647,23 @@ class SyncService @Inject constructor(
                 contentDao.upsertAll(contentRows)
                 // movies carries TMDB enrichment + user flags, so we must
                 // NOT @Upsert (that resets every column to defaults on each
-                // sync — issue: foreign content / ignores returning, posters
-                // vanishing).  insertNewOnly leaves existing rows untouched;
-                // brand-new movies start blank and get enriched.
+                // sync).  insertNewOnly leaves existing rows untouched;
+                // brand-new movies start with the provider poster/rating.
                 movieDao.insertNewOnly(movieRows)
+                // Backfill the provider poster/rating onto pre-existing rows
+                // that don't yet have a poster (TMDB not run, or older sync
+                // before this feature).  Gated on poster_url = '' so a real
+                // TMDB poster is never overwritten.
+                for (row in movieRows) {
+                    if (row.posterUrl.isNotEmpty()) {
+                        movieDao.fillProviderArtworkIfMissing(
+                            contentId = row.contentId,
+                            poster = row.posterUrl,
+                            rating = row.rating,
+                            year = row.year,
+                        )
+                    }
+                }
             }
         }
     }

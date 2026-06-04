@@ -304,21 +304,23 @@ interface MovieDao {
     )
     fun watchByProvider(provider: String, limit: Int = 40): Flow<List<MovieEntity>>
 
-    @Query("SELECT COUNT(*) FROM movies WHERE hidden = 0 AND (poster_url = '' OR genre = '' OR rating = 0.0 OR provider = '')")
+    @Query("SELECT COUNT(*) FROM movies WHERE hidden = 0 AND (genre = '' OR provider = '' OR language = '')")
     suspend fun countNeedingEnrichment(): Int
 
     /**
-     * Movies eligible for TMDB enrichment (missing poster, genre, rating,
-     * or provider).  Note: NOT gated on `hidden` — unenriched rows are
-     * hidden by policy (no TMDB match yet), but we still need to enrich
-     * them so they can be resolved + un-hidden.  Only manual ignores
-     * (`user_hidden`) are skipped, so we don't waste calls on those.
+     * Movies eligible for TMDB enrichment.  Gated on `hidden = 0` so we
+     * ONLY spend TMDB calls on items that survived the instant filters
+     * (year / foreign-category / manual ignore).  Anything those filters
+     * already rejected is skipped — no point identifying a film we've
+     * decided not to show.  `genre = ''` keeps provider-postered items in
+     * scope: they have art + rating from the feed but still need TMDB for
+     * the one thing the feed lacks — language (to catch foreign).
      */
     @Query(
         """
         SELECT * FROM movies
-        WHERE user_hidden = 0
-          AND (poster_url = '' OR genre = '' OR rating = 0.0 OR provider = '')
+        WHERE hidden = 0
+          AND (genre = '' OR provider = '' OR language = '')
         ORDER BY poster_url ASC, year DESC
         LIMIT :limit
         """,
@@ -421,6 +423,23 @@ interface MovieDao {
         """,
     )
     suspend fun allForFilterRecompute(): List<MovieFilterRow>
+
+    /**
+     * Fill the provider-supplied poster / rating / year on a movie that
+     * doesn't already have a poster.  Gated on `poster_url = ''` so a TMDB
+     * poster is never clobbered.  Lets the library show art instantly from
+     * the Xtream feed without waiting for (or even needing) TMDB.
+     */
+    @Query(
+        """
+        UPDATE movies
+        SET poster_url = :poster,
+            rating = CASE WHEN rating = 0.0 THEN :rating ELSE rating END,
+            year = COALESCE(year, :year)
+        WHERE content_id = :contentId AND poster_url = ''
+        """,
+    )
+    suspend fun fillProviderArtworkIfMissing(contentId: String, poster: String, rating: Double, year: Int?)
 
     /** Set the hidden flag on a single movie by row ID. */
     @Query("UPDATE movies SET hidden = :hidden WHERE id = :id")
@@ -528,10 +547,9 @@ interface SeriesDao {
     )
     fun watchByProvider(provider: String, limit: Int = 40): Flow<List<SeriesEntity>>
 
-    // Not gated on `hidden` — unenriched series are hidden by policy but
-    // still need enrichment so they can be resolved + un-hidden.  Manual
-    // ignores (user_hidden) are skipped.
-    @Query("SELECT * FROM series WHERE poster_url = '' AND user_hidden = 0 LIMIT :limit")
+    // Gated on `hidden = 0`: only enrich series that survived the instant
+    // filters, so we don't spend TMDB calls on already-rejected ones.
+    @Query("SELECT * FROM series WHERE poster_url = '' AND hidden = 0 LIMIT :limit")
     suspend fun needingEnrichment(limit: Int = 200): List<SeriesEntity>
 
     /** Series with a TMDB ID but missing detail enrichment fields. */

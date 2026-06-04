@@ -357,6 +357,7 @@ internal data class XtreamVodStream(
     @SerialName("container_extension") val containerExtension: String? = null,
     @SerialName("direct_source") val directSource: String? = null,
     @SerialName("year") val year: String? = null,
+    @SerialName("rating") val rating: String? = null,
 ) {
     fun toEntry(
         base: String,
@@ -384,6 +385,8 @@ internal data class XtreamVodStream(
             contentType = ContentType.Movie,
             movieTitle = parsed?.title ?: TitleParser.stripHdPrefix(displayName),
             movieYear = parsed?.year ?: year?.toIntOrNull(),
+            posterUrl = streamIcon.orEmpty(),
+            rating = rating?.toDoubleOrNull(),
         )
     }
 }

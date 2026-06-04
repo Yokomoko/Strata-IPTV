@@ -32,4 +32,15 @@ data class M3uEntry(
      * best one can't be decoded (e.g. 4K HEVC on a 1080p Fire Stick).
      */
     val altStreamUrls: List<String> = emptyList(),
+    /**
+     * Provider-supplied poster URL (Xtream `stream_icon`).  Used to fill
+     * the movie's poster instantly at sync — ~90% of mybunny's catalogue
+     * carries one — so the library isn't blank while TMDB enrichment
+     * runs in the background.  Distinct from [tvgLogo] (which is the
+     * channel/EPG logo); for VOD they're the same source but movies read
+     * this into `movies.poster_url`.
+     */
+    val posterUrl: String = "",
+    /** Provider-supplied rating (Xtream `rating`), 0–10.  Filled at sync. */
+    val rating: Double? = null,
 )

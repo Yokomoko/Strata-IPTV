@@ -189,11 +189,16 @@ class ShowDetailViewModel @Inject constructor(
         val episodeRows = mutableListOf<EpisodeEntity>()
         val normalised = TitleParser.normalise(series.seriesTitle)
         for (entry in entries) {
+            // Stable per-(series,season,episode) id — deliberately does
+            // NOT include the stream URL.  Hashing the URL meant that
+            // picking a different quality variant as the primary minted a
+            // brand-new content_id and duplicated the episode card.  The
+            // season+episode within the series is the real identity.
             val episodeContentId = ContentIdHasher.hash(
                 sourceKey = sourceKey,
                 normalisedTitle = "$normalised s${entry.seasonNumber}e${entry.episodeNumber}",
                 groupTitle = entry.groupTitle,
-                streamUrl = entry.streamUrl,
+                streamUrl = "",
             )
             contentRows += ContentItemEntity(
                 contentId = episodeContentId,
@@ -222,14 +227,16 @@ class ShowDetailViewModel @Inject constructor(
         // watched / resume position on episodes that already exist, while
         // still adding newly-released ones (e.g. E08).
         episodeDao.insertNewOnly(episodeRows)
-        // Refresh the fallback URLs on every fetched episode without
-        // touching progress — covers episodes inserted before the
-        // alt_stream_urls column existed.
+        // Refresh the primary + fallback URLs on every fetched episode
+        // WITHOUT touching watched/resume — covers rows inserted before
+        // the alt_stream_urls column existed and keeps the best primary.
         for (row in episodeRows) {
-            if (row.altStreamUrls.isNotEmpty()) {
-                episodeDao.updateAltUrls(row.contentId, row.altStreamUrls)
-            }
+            episodeDao.updateStreamUrl(row.contentId, row.streamUrl)
+            episodeDao.updateAltUrls(row.contentId, row.altStreamUrls)
         }
+        // Clean up any legacy duplicate rows for this series left behind
+        // by the old URL-derived content_id (keeps one row per slot).
+        episodeDao.dedupeSeries(series.seriesTitle)
 
         // Update the series header's counts so the Shows-screen card
         // subtitle reflects what actually got persisted.  Before this,

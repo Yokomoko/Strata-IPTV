@@ -751,6 +751,28 @@ interface EpisodeDao {
     @Query("UPDATE episodes SET alt_stream_urls = :altUrls WHERE content_id = :contentId")
     suspend fun updateAltUrls(contentId: String, altUrls: String)
 
+    /** Refresh the primary stream URL without touching watched / resume. */
+    @Query("UPDATE episodes SET stream_url = :url WHERE content_id = :contentId")
+    suspend fun updateStreamUrl(contentId: String, url: String)
+
+    /**
+     * Collapse duplicate rows for one series down to a single row per
+     * (season, episode) slot, keeping the most recently inserted.  Used
+     * after a lazy re-fetch to clean up rows left behind when an
+     * episode's content_id changed (e.g. the historical bug where the id
+     * was derived from the stream URL, so picking a different quality
+     * variant minted a new id and duplicated the card).
+     */
+    @Query(
+        """
+        DELETE FROM episodes WHERE series_title = :title COLLATE NOCASE AND id NOT IN (
+            SELECT MAX(id) FROM episodes WHERE series_title = :title COLLATE NOCASE
+            GROUP BY season_number, episode_number
+        )
+        """,
+    )
+    suspend fun dedupeSeries(title: String): Int
+
     /** Plain count of stored episodes for a series — used by the show
      *  detail screen to decide whether a lazy `get_series_info` fetch
      *  is needed before rendering. */

@@ -94,6 +94,10 @@ fun PlayerScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val focusRequester = remember { FocusRequester() }
+    // Dedicated requester for the error overlay's Retry button so that,
+    // when a stream fails, D-pad focus lands on Retry/Go-Back instead of
+    // being swallowed by the player transport controls underneath.
+    val retryFocusRequester = remember { FocusRequester() }
 
     // Track the current display title for live channel switching.
     var displayTitle by remember { mutableStateOf(title) }
@@ -261,6 +265,12 @@ fun PlayerScreen(
 
         // -- Error overlay -----------------------------------------------
         state.errorMessage?.let { errorMsg ->
+            // Pull D-pad focus onto the Retry button the moment an error
+            // is shown — otherwise the player controls underneath keep
+            // focus and the user can't reach Retry / Go Back.
+            LaunchedEffect(errorMsg) {
+                runCatching { retryFocusRequester.requestFocus() }
+            }
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
@@ -297,6 +307,7 @@ fun PlayerScreen(
                         // Retry button
                         androidx.tv.material3.Surface(
                             onClick = { viewModel.retryNow() },
+                            modifier = Modifier.focusRequester(retryFocusRequester),
                             shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(
                                 shape = RoundedCornerShape(8.dp),
                             ),

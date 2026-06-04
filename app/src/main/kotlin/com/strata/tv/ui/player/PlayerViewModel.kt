@@ -95,13 +95,34 @@ class PlayerViewModel @Inject constructor(
      */
     private val loadControl: LoadControl = DefaultLoadControl.Builder()
         .setBufferDurationsMs(
-            /* minBufferMs = */ 8_000,
-            /* maxBufferMs = */ 15_000,
-            /* bufferForPlaybackMs = */ 1_500,
-            /* bufferForPlaybackAfterRebufferMs = */ 2_500,
+            // Bumped from 8/15s to 20/45s: the original tight budget was a
+            // workaround for the OOM that's since been fixed (streaming
+            // persist), and it caused frequent mid-stream rebuffering on
+            // variable WiFi.  45 s max ≈ a few MB of compressed video —
+            // comfortably within heap now — and a 20 s floor lets the
+            // player ride out short network dips without stalling.
+            /* minBufferMs = */ 20_000,
+            /* maxBufferMs = */ 45_000,
+            // 2.5 s before first frame, 5 s after a rebuffer — fewer but
+            // longer buffering pauses beat constant micro-stalls.
+            /* bufferForPlaybackMs = */ 2_500,
+            /* bufferForPlaybackAfterRebufferMs = */ 5_000,
         )
         .setPrioritizeTimeOverSizeThresholds(true)
         .build()
+
+    /**
+     * Renderers tuned for Fire Stick codec quirks.  `enableDecoderFallback`
+     * is the important one: when a stream is tagged with an HEVC profile/
+     * level the hardware decoder rejects (e.g. `hvc1.2.4.L150` = HEVC
+     * Level 5.0, which threw `NO_EXCEEDS_CAPABILITIES` on Euphoria),
+     * ExoPlayer would normally fail outright.  With fallback enabled it
+     * retries on a secondary (software) decoder instead of dying, so the
+     * episode plays even though the primary HW codec refused it.
+     */
+    private val renderersFactory: androidx.media3.exoplayer.DefaultRenderersFactory =
+        androidx.media3.exoplayer.DefaultRenderersFactory(application)
+            .setEnableDecoderFallback(true)
 
     /**
      * HTTP datasource configured for IPTV streams.  Two important
@@ -133,6 +154,7 @@ class PlayerViewModel @Inject constructor(
     val player: ExoPlayer = ExoPlayer.Builder(application)
         .setLoadControl(loadControl)
         .setMediaSourceFactory(mediaSourceFactory)
+        .setRenderersFactory(renderersFactory)
         .build()
 
     // ── UI state ─────────────────────────────────────────────────────
@@ -857,6 +879,9 @@ class PlayerViewModel @Inject constructor(
      * is the *caller* throttles to 30s so any downstream cost is minimal.
      */
     private fun saveSilentContinueWatching() {
+        // Live TV doesn't belong in Continue Watching — there's no
+        // meaningful resume position for a linear channel.
+        if (isLive) return
         val posMs = player.currentPosition
         if (posMs < 5_000) return
         viewModelScope.launch {
@@ -884,6 +909,7 @@ class PlayerViewModel @Inject constructor(
      * Full notification-emitting save — so the home rail refreshes.
      */
     private fun saveFullContinueWatching() {
+        if (isLive) return
         val posMs = player.currentPosition
         if (posMs < 5_000) return
         val totalMs = player.duration.coerceAtLeast(0)

@@ -206,6 +206,15 @@ data class SeriesEntity(
     val xtreamSeriesId: Int? = null,
     /** Sticky "Ignore this show" intent — see MovieEntity.userHidden. */
     @ColumnInfo(name = "user_hidden", defaultValue = "0") val userHidden: Boolean = false,
+    /**
+     * The provider category / group title this series came from
+     * (e.g. "German", "Drama", "UK | Box Sets").  Stored so the filter
+     * recompute can drop foreign-language categories the country
+     * whitelist should exclude — series have no other country signal
+     * until TMDB enrichment sets [language], and unmatched foreign shows
+     * never get a language at all.
+     */
+    @ColumnInfo(name = "group_title", defaultValue = "") val groupTitle: String = "",
 ) {
     /** Convenience: there are episodes the user hasn't seen mentioned yet. */
     val hasNewEpisodes: Boolean

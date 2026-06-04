@@ -30,7 +30,7 @@ import androidx.room.TypeConverters
         FavouriteEntity::class,
         WatchlistEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)

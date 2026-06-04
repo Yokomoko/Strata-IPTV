@@ -472,6 +472,24 @@ interface SeriesDao {
     @Query("SELECT * FROM series WHERE hidden = 0")
     fun watchAll(): Flow<List<SeriesEntity>>
 
+    /**
+     * Substring search over visible series titles.  Search only ever
+     * queried `content_items`, but for Xtream/JSON providers a show's
+     * episodes (and its content_items rows) aren't created until the
+     * user opens its detail screen — so a never-opened show lived only
+     * in this `series` table and was unfindable.  SearchViewModel now
+     * also calls this and merges the results.
+     */
+    @Query(
+        """
+        SELECT * FROM series
+        WHERE hidden = 0 AND series_title LIKE '%' || :q || '%' COLLATE NOCASE
+        ORDER BY total_episodes DESC
+        LIMIT 100
+        """,
+    )
+    suspend fun searchSeries(q: String): List<SeriesEntity>
+
     @Query("SELECT * FROM series WHERE series_title = :title COLLATE NOCASE LIMIT 1")
     suspend fun byTitle(title: String): SeriesEntity?
 

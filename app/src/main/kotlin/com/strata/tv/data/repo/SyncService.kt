@@ -22,6 +22,7 @@ import com.strata.tv.domain.ChannelCategorizer
 import com.strata.tv.domain.ChannelDeduplicator
 import com.strata.tv.domain.ContentIdHasher
 import com.strata.tv.domain.ContentType
+import com.strata.tv.domain.ForeignContentFilter
 import com.strata.tv.domain.MovieDeduplicator
 import com.strata.tv.domain.SkyChannelNumbers
 import com.strata.tv.domain.TitleParser
@@ -148,6 +149,13 @@ class SyncService @Inject constructor(
                     if (prefix.isNotEmpty() && prefix !in countryWhitelist) {
                         return true
                     }
+                }
+                // Foreign-language category filter: catches categories that
+                // name a non-whitelisted country/language WITHOUT a "|"
+                // prefix (e.g. "German", "Hindi", "Thai") — the common
+                // Xtream convention the prefix check above misses.
+                if (ForeignContentFilter.shouldExclude(group, countryWhitelist)) {
+                    return true
                 }
                 // Category filter: drop anything whose group-title matches
                 // a blacklisted keyword (substring match, case-insensitive).
@@ -333,6 +341,12 @@ class SyncService @Inject constructor(
                     if (countryWhitelist.isNotEmpty() && meta.groupTitle.contains('|')) {
                         val prefix = meta.groupTitle.substringBefore('|').trim().uppercase()
                         if (prefix.isNotEmpty() && prefix !in countryWhitelist) return@filter false
+                    }
+                    // Foreign-language categories with no "|" prefix
+                    // (German / Hindi / Thai / …) — the main reason
+                    // non-English shows leaked past the country filter.
+                    if (ForeignContentFilter.shouldExclude(meta.groupTitle, countryWhitelist)) {
+                        return@filter false
                     }
                     if (excludedCategories.isNotEmpty()) {
                         val g = meta.groupTitle.lowercase()
@@ -710,11 +724,13 @@ class SyncService @Inject constructor(
                     totalSeasons = newTotalSeasons,
                     totalEpisodes = newTotalEpisodes,
                     lastSeenTotalEpisodes = nextLastSeen,
+                    groupTitle = first.groupTitle,
                 ) ?: SeriesEntity(
                     seriesTitle = titleForSeries,
                     totalSeasons = newTotalSeasons,
                     totalEpisodes = newTotalEpisodes,
                     lastSeenTotalEpisodes = nextLastSeen,
+                    groupTitle = first.groupTitle,
                 ),
             )
 
@@ -784,10 +800,14 @@ class SyncService @Inject constructor(
             // SeriesEnrichmentService will fill in poster/backdrop/plot
             // separately when it next runs.
             val existing = seriesDao.byTitle(meta.title)
-            existing?.copy(xtreamSeriesId = meta.xtreamSeriesId)
+            existing?.copy(
+                xtreamSeriesId = meta.xtreamSeriesId,
+                groupTitle = meta.groupTitle,
+            )
                 ?: SeriesEntity(
                     seriesTitle = meta.title,
                     xtreamSeriesId = meta.xtreamSeriesId,
+                    groupTitle = meta.groupTitle,
                 )
         }
         seriesDao.upsertAll(rows)

@@ -118,7 +118,12 @@ class SearchViewModel @Inject constructor(
 
         val builtQuery = ContentDao.buildSearchQuery(query)
         val raw = contentDao.searchRaw(builtQuery)
-        if (raw.isEmpty()) return SearchUiState.NoResults
+        // Also search the `series` table directly — for JSON/Xtream
+        // providers a show's content_items rows don't exist until its
+        // detail screen is opened, so content_items search alone misses
+        // every un-opened show.
+        val seriesHits = seriesDao.searchSeries(query.trim())
+        if (raw.isEmpty() && seriesHits.isEmpty()) return SearchUiState.NoResults
 
         // Score + tie-breaker boosts (issue #36).  Vanilla fuzzy score
         // returns 1.0 for any substring match, so "LEGO Marvel Avengers"
@@ -168,13 +173,42 @@ class SearchViewModel @Inject constructor(
                     }
                 }
                 "show" -> {
-                    val seriesKey = seriesKeyFor(item)
-                    if (seenSeries.add(seriesKey)) {
-                        shows.add(item.toSeriesResult(seriesKey, score))
+                    // Dedup on the normalised series title, but carry the
+                    // RAW title for navigation/watchlist (openShowDetail →
+                    // SeriesDao.byTitle needs the real series_title PK, not
+                    // the punctuation-stripped normalised form).
+                    val rawTitle = item.title.ifBlank { TitleParser.stripHdPrefix(item.displayName) }
+                    if (seenSeries.add(TitleParser.normalise(rawTitle))) {
+                        shows.add(item.toSeriesResult(rawTitle, score))
                     }
                 }
             }
         }
+
+        // Merge series-table hits (the only source of shows for JSON
+        // providers).  Fuzzy-score against the raw series title; dedup
+        // against shows already found via content_items.
+        for (series in seriesHits) {
+            val key = TitleParser.normalise(series.seriesTitle)
+            if (key.isBlank() || !seenSeries.add(key)) continue
+            val score = FuzzyMatch.fuzzyScore(query, series.seriesTitle)
+            if (score <= 0.0) continue
+            shows.add(
+                SearchResult(
+                    contentId = series.seriesTitle,
+                    displayName = series.seriesTitle,
+                    title = series.seriesTitle,
+                    groupTitle = "",
+                    contentType = "show",
+                    streamUrl = "",
+                    artworkUrl = "",
+                    score = score,
+                    seriesTitle = series.seriesTitle,
+                    posterUrl = series.posterUrl,
+                ),
+            )
+        }
+        shows.sortByDescending { it.score }
 
         // Batch-fetch poster URLs from the movies + series tables.
         // content_items doesn't carry the TMDB poster URL; it lives on

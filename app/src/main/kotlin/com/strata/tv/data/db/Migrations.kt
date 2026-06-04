@@ -121,3 +121,16 @@ val MIGRATION_8_9 = object : Migration(8, 9) {
         db.execSQL("ALTER TABLE series ADD COLUMN user_hidden INTEGER NOT NULL DEFAULT 0")
     }
 }
+
+/**
+ * v9 → v10: adds `group_title` to `series` so the filter recompute can
+ * drop foreign-language categories ("German", "Hindi", "Thai", …) the
+ * country whitelist should exclude.  Defaults to '' — existing rows are
+ * re-populated on the next sync, after which the recompute can act on
+ * them.
+ */
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE series ADD COLUMN group_title TEXT NOT NULL DEFAULT ''")
+    }
+}

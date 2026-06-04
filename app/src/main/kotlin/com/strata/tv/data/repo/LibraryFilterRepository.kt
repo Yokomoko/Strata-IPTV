@@ -98,6 +98,7 @@ class LibraryFilterRepository @Inject constructor(
         val excludedLangs = s.excludedLanguages
         val excludedGenres = s.excludedGenres
         val minYear = s.minimumYear
+        val countryWhitelist = s.countryWhitelist.map { it.uppercase() }.toSet()
 
         // Filter-derived hide decision (language / genre / year).  The
         // caller ORs in the sticky `user_hidden` flag so a manual "Ignore
@@ -144,8 +145,18 @@ class LibraryFilterRepository @Inject constructor(
         val seriesToHide = mutableListOf<Int>()
         val seriesToShow = mutableListOf<Int>()
         for (s2 in allSeries) {
-            if (s2.tmdbId == 0) continue
-            val should = shouldHideByFilters(s2.language, s2.genre, s2.firstAirYear) || s2.userHidden
+            // Foreign-category exclusion works even for UNENRICHED shows
+            // (tmdb_id == 0) — that's the whole point, since an unmatched
+            // foreign show never gets a `language` to filter on.  It reads
+            // the stored group_title (e.g. "German", "Hindi").
+            val foreignExcluded = com.strata.tv.domain.ForeignContentFilter
+                .shouldExclude(s2.groupTitle, countryWhitelist)
+            val should = if (s2.tmdbId == 0) {
+                foreignExcluded || s2.userHidden
+            } else {
+                shouldHideByFilters(s2.language, s2.genre, s2.firstAirYear) ||
+                    s2.userHidden || foreignExcluded
+            }
             if (should && !s2.hidden) seriesToHide += s2.id
             else if (!should && s2.hidden) seriesToShow += s2.id
         }

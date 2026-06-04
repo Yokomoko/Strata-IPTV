@@ -362,6 +362,11 @@ class PlayerViewModel @Inject constructor(
                 // the SAME format can never succeed).  Load the variant
                 // list on-demand first: the capability error often beats
                 // the eager async load in initialize().
+                android.util.Log.w(
+                    "PlayerVM",
+                    "Decode capability error code=${error.errorCode} " +
+                        "variants=${variantUrls.size} idx=$variantIndex contentId=$contentId",
+                )
                 bufferingWatchdogJob?.cancel()
                 retryJob?.cancel()
                 viewModelScope.launch {
@@ -582,13 +587,31 @@ class PlayerViewModel @Inject constructor(
         if (variantUrls.size > 1) return
         if (contentId.isBlank()) return
         val primary = variantUrls.firstOrNull() ?: streamUrl
-        val alts = runCatching { contentDao.byContentId(contentId) }
-            .getOrNull()
-            ?.altStreamUrls
-            ?.split("\n")
-            ?.map { it.trim() }
-            ?.filter { it.isNotEmpty() }
-            .orEmpty()
+
+        fun parse(raw: String?): List<String> =
+            raw?.split("\n")?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
+
+        // Try the content row first (universal store).  If it has no
+        // alternates — e.g. an episode row written by an older build that
+        // only stored them on the episodes table, or a contentId that
+        // didn't get the content_items refresh — fall back to looking the
+        // episode up by series/season/episode, which is stable.
+        var alts = parse(runCatching { contentDao.byContentId(contentId) }.getOrNull()?.altStreamUrls)
+        if (alts.isEmpty()) {
+            alts = parse(runCatching { episodeDao.byContentId(contentId) }.getOrNull()?.altStreamUrls)
+        }
+        if (alts.isEmpty() && contentType == "show" && seriesTitle != null &&
+            seasonNumber != null && episodeNumber != null
+        ) {
+            val ep = runCatching {
+                episodeDao.bySlot(seriesTitle!!, seasonNumber!!, episodeNumber!!)
+            }.getOrNull()
+            alts = parse(ep?.altStreamUrls)
+        }
+        android.util.Log.i(
+            "PlayerVM",
+            "ensureVariantsLoaded contentId=$contentId type=$contentType alts=${alts.size}",
+        )
         if (alts.isNotEmpty()) variantUrls = listOf(primary) + alts
     }
 

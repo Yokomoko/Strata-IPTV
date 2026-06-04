@@ -766,6 +766,18 @@ interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE content_id = :contentId LIMIT 1")
     suspend fun byContentId(contentId: String): EpisodeEntity?
 
+    /** Episode by its stable (series, season, episode) slot — used as a
+     *  contentId-independent fallback lookup for the player's variant list. */
+    @Query(
+        """
+        SELECT * FROM episodes
+        WHERE series_title = :title COLLATE NOCASE
+          AND season_number = :season AND episode_number = :episode
+        LIMIT 1
+        """,
+    )
+    suspend fun bySlot(title: String, season: Int, episode: Int): EpisodeEntity?
+
     /** Refresh fallback URLs without disturbing watched / resume columns. */
     @Query("UPDATE episodes SET alt_stream_urls = :altUrls WHERE content_id = :contentId")
     suspend fun updateAltUrls(contentId: String, altUrls: String)

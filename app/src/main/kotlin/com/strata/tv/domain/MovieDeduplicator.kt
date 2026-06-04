@@ -136,6 +136,19 @@ class MovieDeduplicator @Inject constructor(
                 if (shouldHide) hiddenCount++
             }
 
+            // Keep the losing variants' URLs as quality fallbacks on the
+            // winner's content row, so if the winner (highest quality, e.g.
+            // 4K HEVC) can't be decoded the player can step down to a
+            // lower-quality source of the same film instead of dead-ending.
+            val altUrls = scored
+                .filter { it.movie.id != winner.movie.id }
+                .sortedByDescending { it.quality.ordinal }
+                .mapNotNull { streamUrls[it.movie.contentId] }
+                .filter { it.isNotBlank() }
+            if (altUrls.isNotEmpty()) {
+                contentDao.updateAltUrls(winner.movie.contentId, altUrls.joinToString("\n"))
+            }
+
             Log.d(
                 TAG,
                 "Dedup '$normTitle': ${variants.size} variants, " +

@@ -143,6 +143,19 @@ fun PlayerScreen(
                 if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) {
                     return@onPreviewKeyEvent false
                 }
+                // While the error overlay is up, DON'T intercept D-pad /
+                // center as seek / play-pause — let them reach the
+                // Retry / Go Back buttons so the user can move between
+                // and activate them.  Only Back exits the player.
+                if (state.errorMessage != null) {
+                    return@onPreviewKeyEvent when (event.nativeKeyEvent.keyCode) {
+                        KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                            exitHandler()
+                            true
+                        }
+                        else -> false
+                    }
+                }
                 // While the episode overlay is up, only intercept Back
                 // (to dismiss it) and Up (to return focus to the
                 // controls).  Everything else — Left/Right/Center —

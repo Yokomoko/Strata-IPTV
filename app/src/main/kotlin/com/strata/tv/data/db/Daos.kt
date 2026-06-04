@@ -37,6 +37,10 @@ interface ContentDao {
     @Query("SELECT * FROM content_items WHERE content_id = :contentId LIMIT 1")
     suspend fun byContentId(contentId: String): ContentItemEntity?
 
+    /** Store the quality-fallback URLs (newline-separated) on a content row. */
+    @Query("UPDATE content_items SET alt_stream_urls = :altUrls WHERE content_id = :contentId")
+    suspend fun updateAltUrls(contentId: String, altUrls: String)
+
     @Query("SELECT * FROM content_items WHERE content_type = :type")
     suspend fun byType(type: String): List<ContentItemEntity>
 

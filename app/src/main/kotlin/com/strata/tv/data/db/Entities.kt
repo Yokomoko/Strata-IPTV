@@ -58,6 +58,14 @@ data class ContentItemEntity(
     @ColumnInfo(name = "artwork_url") val artworkUrl: String = "",
     @ColumnInfo(name = "backdrop_url") val backdropUrl: String = "",
     @ColumnInfo(name = "last_updated") val lastUpdated: Instant = Instant.now(),
+    /**
+     * Newline-separated lower-quality fallback stream URLs (best→worst):
+     * the quality variants the deduplicator collapsed into this single
+     * entry.  Universal across live / movie / show so the player falls
+     * back the same way for all three when the primary [streamUrl] can't
+     * be decoded (e.g. a 4K/HEVC source on a 1080p Fire Stick).
+     */
+    @ColumnInfo(name = "alt_stream_urls", defaultValue = "") val altStreamUrls: String = "",
 )
 
 // ---------------------------------------------------------------------------

@@ -119,6 +119,48 @@ object ChannelDeduplicator {
         }
     }
 
+    /** A deduped channel plus the stream URLs of its lower-quality variants. */
+    data class WithAlternates<T>(val channel: T, val altStreamUrls: List<String>)
+
+    /**
+     * Like [dedupe] but also returns, per winning channel, the stream
+     * URLs of the variants that lost — so the player can fall back to a
+     * lower-quality feed when the best one can't be decoded (e.g. a
+     * channel's HEVC/4K variant on a 1080p Fire Stick).
+     */
+    fun <T> dedupeWithAlternates(
+        channels: List<T>,
+        displayName: (T) -> String,
+        tvgId: (T) -> String,
+        streamUrl: (T) -> String,
+        withTvgId: (T, String) -> T,
+    ): List<WithAlternates<T>> {
+        val groups = LinkedHashMap<String, MutableList<Ranked<T>>>()
+        val bestTvgId = mutableMapOf<String, String>()
+
+        for (ch in channels) {
+            val raw = displayName(ch)
+            if (shouldHide(raw)) continue
+            val parsed = parse(raw)
+            val id = tvgId(ch)
+            if (id.isNotEmpty()) bestTvgId.putIfAbsent(parsed.name, id)
+            groups.getOrPut(parsed.name) { mutableListOf() }.add(Ranked(ch, parsed.quality))
+        }
+
+        return groups.map { (key, ranked) ->
+            val sorted = ranked.sortedByDescending { it.quality.ordinal }
+            var winner = sorted.first().channel
+            val knownTvgId = bestTvgId[key]
+            if (knownTvgId != null && tvgId(winner).isEmpty()) {
+                winner = withTvgId(winner, knownTvgId)
+            }
+            val alts = sorted.drop(1)
+                .map { streamUrl(it.channel) }
+                .filter { it.isNotBlank() && it != streamUrl(winner) }
+            WithAlternates(winner, alts)
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Internals: prefix patterns + the normalisation pipeline.
     // -------------------------------------------------------------------------

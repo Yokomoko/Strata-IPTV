@@ -212,6 +212,7 @@ class ShowDetailViewModel @Inject constructor(
                 tvgLogo = entry.tvgLogo,
                 tvgType = entry.tvgType,
                 title = series.seriesTitle,
+                altStreamUrls = entry.altStreamUrls.joinToString("\n"),
             )
             episodeRows += EpisodeEntity(
                 contentId = episodeContentId,

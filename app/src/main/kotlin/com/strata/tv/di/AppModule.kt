@@ -16,6 +16,7 @@ import com.strata.tv.data.db.MIGRATION_7_8
 import com.strata.tv.data.db.MIGRATION_8_9
 import com.strata.tv.data.db.MIGRATION_9_10
 import com.strata.tv.data.db.MIGRATION_10_11
+import com.strata.tv.data.db.MIGRATION_11_12
 import com.strata.tv.data.db.MovieDao
 import com.strata.tv.data.db.ProgrammeDao
 import com.strata.tv.data.db.SeriesDao
@@ -68,6 +69,7 @@ object AppModule {
                 MIGRATION_8_9,
                 MIGRATION_9_10,
                 MIGRATION_10_11,
+                MIGRATION_11_12,
             )
             .fallbackToDestructiveMigration()
             .build()

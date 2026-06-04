@@ -280,6 +280,7 @@ class PlayerViewModel @Inject constructor(
                         // A long stall can be a too-heavy codec or just a
                         // slow source — stepping down to a lower-quality
                         // variant fixes both when one is available.
+                        ensureVariantsLoaded()
                         if (tryNextVariant()) return@launch
                         retryJob?.cancel()
                         _uiState.update {
@@ -358,17 +359,22 @@ class PlayerViewModel @Inject constructor(
             ) {
                 // The device can't decode this variant — switch to a
                 // lower-quality source rather than retrying (a retry of
-                // the SAME format can never succeed).
-                if (tryNextVariant()) return
+                // the SAME format can never succeed).  Load the variant
+                // list on-demand first: the capability error often beats
+                // the eager async load in initialize().
                 bufferingWatchdogJob?.cancel()
                 retryJob?.cancel()
-                _uiState.update {
-                    it.copy(
-                        isBuffering = false,
-                        errorMessage = "This episode is in a video format this device " +
-                            "can't play (e.g. 4K / HEVC) and no lower-quality version " +
-                            "is available from the provider.",
-                    )
+                viewModelScope.launch {
+                    ensureVariantsLoaded()
+                    if (tryNextVariant()) return@launch
+                    _uiState.update {
+                        it.copy(
+                            isBuffering = false,
+                            errorMessage = "This episode is in a video format this device " +
+                                "can't play (e.g. 4K / HEVC) and no lower-quality version " +
+                                "is available from the provider.",
+                        )
+                    }
                 }
                 return
             }
@@ -387,9 +393,12 @@ class PlayerViewModel @Inject constructor(
             } else {
                 // Exhausted retries on this variant — try a lower-quality
                 // one before giving up entirely.
-                if (tryNextVariant()) return
-                _uiState.update {
-                    it.copy(errorMessage = error.localizedMessage ?: "Stream unavailable after $maxRetries retries")
+                viewModelScope.launch {
+                    ensureVariantsLoaded()
+                    if (tryNextVariant()) return@launch
+                    _uiState.update {
+                        it.copy(errorMessage = error.localizedMessage ?: "Stream unavailable after $maxRetries retries")
+                    }
                 }
             }
         }
@@ -493,15 +502,17 @@ class PlayerViewModel @Inject constructor(
             startPeriodicSave()
         }
 
-        // Seed the variant list with the primary URL; for episodes, load
-        // the lower-quality fallbacks asynchronously so a decode failure
-        // can step down instead of dead-ending.
+        // Seed the variant list with the primary URL; load the
+        // lower-quality fallbacks (stored on the content row for live /
+        // movie / show alike) asynchronously so a decode failure can
+        // step down instead of dead-ending.
         variantUrls = listOf(streamUrl)
         variantIndex = 0
-        if (contentType == "show" && contentId.isNotBlank()) {
+        if (contentId.isNotBlank()) {
             viewModelScope.launch {
-                val ep = runCatching { episodeDao.byContentId(contentId) }.getOrNull()
-                val alts = ep?.altStreamUrls
+                val alts = runCatching { contentDao.byContentId(contentId) }
+                    .getOrNull()
+                    ?.altStreamUrls
                     ?.split("\n")
                     ?.map { it.trim() }
                     ?.filter { it.isNotEmpty() }
@@ -558,6 +569,27 @@ class PlayerViewModel @Inject constructor(
         retryCount = 0
         _uiState.update { it.copy(errorMessage = null, isBuffering = true) }
         player.prepare()
+    }
+
+    /**
+     * Load the fallback variant URLs from the content row if we haven't
+     * already.  Called on-demand from the error/stall handlers because a
+     * 4K capability error can fire BEFORE the eager async load in
+     * [initialize] finishes — without this, the first failure sees only
+     * the primary URL and dead-ends instead of stepping down.
+     */
+    private suspend fun ensureVariantsLoaded() {
+        if (variantUrls.size > 1) return
+        if (contentId.isBlank()) return
+        val primary = variantUrls.firstOrNull() ?: streamUrl
+        val alts = runCatching { contentDao.byContentId(contentId) }
+            .getOrNull()
+            ?.altStreamUrls
+            ?.split("\n")
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            .orEmpty()
+        if (alts.isNotEmpty()) variantUrls = listOf(primary) + alts
     }
 
     /**

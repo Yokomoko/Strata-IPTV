@@ -145,3 +145,13 @@ val MIGRATION_10_11 = object : Migration(10, 11) {
         db.execSQL("ALTER TABLE episodes ADD COLUMN alt_stream_urls TEXT NOT NULL DEFAULT ''")
     }
 }
+
+/**
+ * v11 → v12: adds `alt_stream_urls` to `content_items` — the universal
+ * place the player reads quality fallbacks from for live / movie / show.
+ */
+val MIGRATION_11_12 = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE content_items ADD COLUMN alt_stream_urls TEXT NOT NULL DEFAULT ''")
+    }
+}

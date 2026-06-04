@@ -525,12 +525,14 @@ class SyncService @Inject constructor(
         sourceKey: String,
     ) {
         // Dedup in-memory first — keeps the per-row writes to one per
-        // logical channel.  M3uEntry is the type the dedup operates on
-        // since it has both displayName and tvgId.
-        val deduped = ChannelDeduplicator.dedupe(
+        // logical channel.  dedupeWithAlternates also hands back the
+        // lower-quality variant URLs so the player can fall back to a
+        // playable feed when the best one can't be decoded.
+        val deduped = ChannelDeduplicator.dedupeWithAlternates(
             channels = entries,
             displayName = M3uEntry::displayName,
             tvgId = M3uEntry::tvgId,
+            streamUrl = M3uEntry::streamUrl,
             withTvgId = { e, id -> e.copy(tvgId = id) },
         )
 
@@ -539,7 +541,8 @@ class SyncService @Inject constructor(
             val contentRows = ArrayList<ContentItemEntity>(chunk.size)
             val channelRows = ArrayList<ChannelEntity>(chunk.size)
 
-            for (entry in chunk) {
+            for (withAlts in chunk) {
+                val entry = withAlts.channel
                 val contentId = ContentIdHasher.hash(
                     sourceKey = sourceKey,
                     normalisedTitle = TitleParser.normalise(
@@ -561,6 +564,7 @@ class SyncService @Inject constructor(
                         tvgName = entry.tvgName,
                         tvgLogo = entry.tvgLogo,
                         tvgType = entry.tvgType,
+                        altStreamUrls = withAlts.altStreamUrls.joinToString("\n"),
                     ),
                 )
 

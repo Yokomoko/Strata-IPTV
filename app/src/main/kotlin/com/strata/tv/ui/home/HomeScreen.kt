@@ -86,6 +86,7 @@ fun HomeScreen(
     val genreRails by viewModel.genreRails.collectAsState()
     val providerRails by viewModel.providerRails.collectAsState()
     val watchlist by viewModel.watchlist.collectAsState()
+    val watchlistPosters by viewModel.watchlistPosters.collectAsState()
     val newEpisodeShows by viewModel.newEpisodeShows.collectAsState()
 
     // Build a Set of series titles that currently have new episodes —
@@ -256,7 +257,12 @@ fun HomeScreen(
                         PosterCard(
                             title = item.title,
                             subtitle = null,
-                            posterUrl = item.artworkUrl.takeIf { it.isNotBlank() },
+                            // Prefer the live poster resolved from the
+                            // movies/series tables; fall back to the stored
+                            // snapshot only if the tables have none.
+                            posterUrl = watchlistPosters[item.contentId.lowercase()]
+                                ?.takeIf { it.isNotBlank() }
+                                ?: item.artworkUrl.takeIf { it.isNotBlank() },
                             badge = if (showBadge) "NEW" else null,
                             onClick = {
                                 if (item.contentType == "show") {

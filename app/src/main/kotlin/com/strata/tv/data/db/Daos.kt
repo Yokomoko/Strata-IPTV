@@ -41,6 +41,11 @@ interface ContentDao {
     @Query("UPDATE content_items SET alt_stream_urls = :altUrls WHERE content_id = :contentId")
     suspend fun updateAltUrls(contentId: String, altUrls: String)
 
+    /** Delete content rows by content_id — counterpart to MovieDao.deleteByIds
+     *  so an exact-duplicate movie is removed from search too. */
+    @Query("DELETE FROM content_items WHERE content_id IN (:ids)")
+    suspend fun deleteByContentIds(ids: List<String>)
+
     @Query("SELECT * FROM content_items WHERE content_type = :type")
     suspend fun byType(type: String): List<ContentItemEntity>
 
@@ -467,6 +472,12 @@ interface MovieDao {
     @Query("SELECT content_id, poster_url FROM movies WHERE content_id IN (:ids)")
     suspend fun postersForContentIds(ids: List<String>): List<ContentIdPoster>
 
+    /** Delete movie rows by id — used to drop exact duplicates (the same
+     *  stream listed under multiple categories), which would otherwise
+     *  resurface as duplicate cards after the filter recompute. */
+    @Query("DELETE FROM movies WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Int>)
+
     /** Bulk hide/show used by the retroactive filter recompute. */
     @Query("UPDATE movies SET hidden = 1 WHERE id IN (:ids)")
     suspend fun hideByIds(ids: List<Int>)
@@ -548,8 +559,16 @@ interface SeriesDao {
     fun watchByProvider(provider: String, limit: Int = 40): Flow<List<SeriesEntity>>
 
     // Gated on `hidden = 0`: only enrich series that survived the instant
-    // filters, so we don't spend TMDB calls on already-rejected ones.
-    @Query("SELECT * FROM series WHERE poster_url = '' AND hidden = 0 LIMIT :limit")
+    // filters.  Triggered on missing TMDB data (language/genre/tmdb_id) —
+    // NOT poster_url, which is now filled instantly from the provider
+    // `cover`, so a series with a cover still gets its language identified.
+    @Query(
+        """
+        SELECT * FROM series
+        WHERE hidden = 0 AND (tmdb_id = 0 OR language = '' OR genre = '')
+        LIMIT :limit
+        """,
+    )
     suspend fun needingEnrichment(limit: Int = 200): List<SeriesEntity>
 
     /** Series with a TMDB ID but missing detail enrichment fields. */

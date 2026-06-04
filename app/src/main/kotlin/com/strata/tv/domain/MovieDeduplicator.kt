@@ -125,26 +125,44 @@ class MovieDeduplicator @Inject constructor(
                 )
                 .first()
 
+            val winnerUrl = streamUrls[winner.movie.contentId].orEmpty()
+            val deleteMovieIds = mutableListOf<Int>()
+            val deleteContentIds = mutableListOf<String>()
             for (sm in scored) {
-                // A losing variant is hidden; the winner is shown — UNLESS
-                // the user manually ignored it (user_hidden), in which case
-                // it stays hidden regardless of dedup outcome.
-                val shouldHide = sm.movie.id != winner.movie.id || sm.movie.userHidden
-                if (sm.movie.hidden != shouldHide) {
-                    movieDao.setHidden(sm.movie.id, hidden = shouldHide)
+                if (sm.movie.id == winner.movie.id) {
+                    // Winner is visible unless the user manually ignored it.
+                    if (sm.movie.hidden != sm.movie.userHidden) {
+                        movieDao.setHidden(sm.movie.id, hidden = sm.movie.userHidden)
+                    }
+                    continue
                 }
-                if (shouldHide) hiddenCount++
+                val smUrl = streamUrls[sm.movie.contentId].orEmpty()
+                if (smUrl.isNotBlank() && smUrl == winnerUrl) {
+                    // Exact duplicate — same stream, different category.
+                    // DELETE it (not hide): the filter recompute doesn't
+                    // know it's a dup and would un-hide it back into view.
+                    deleteMovieIds += sm.movie.id
+                    deleteContentIds += sm.movie.contentId
+                } else {
+                    // Genuine quality variant — hide it (kept as a fallback
+                    // URL below).
+                    if (!sm.movie.hidden) movieDao.setHidden(sm.movie.id, hidden = true)
+                    hiddenCount++
+                }
+            }
+            if (deleteMovieIds.isNotEmpty()) {
+                movieDao.deleteByIds(deleteMovieIds)
+                contentDao.deleteByContentIds(deleteContentIds)
             }
 
-            // Keep the losing variants' URLs as quality fallbacks on the
-            // winner's content row, so if the winner (highest quality, e.g.
-            // 4K HEVC) can't be decoded the player can step down to a
-            // lower-quality source of the same film instead of dead-ending.
+            // Keep the genuine (different-URL) variants as quality fallbacks
+            // on the winner's content row, so if the winner can't be decoded
+            // the player can step down to a lower-quality source.
             val altUrls = scored
                 .filter { it.movie.id != winner.movie.id }
+                .filter { streamUrls[it.movie.contentId].orEmpty().let { u -> u.isNotBlank() && u != winnerUrl } }
                 .sortedByDescending { it.quality.ordinal }
                 .mapNotNull { streamUrls[it.movie.contentId] }
-                .filter { it.isNotBlank() }
             if (altUrls.isNotEmpty()) {
                 contentDao.updateAltUrls(winner.movie.contentId, altUrls.joinToString("\n"))
             }

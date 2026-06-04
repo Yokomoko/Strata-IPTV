@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -145,6 +146,35 @@ class HomeViewModel @Inject constructor(
     /** Watchlist items for the Home rail. */
     val watchlist: StateFlow<List<WatchlistEntity>> = watchlistDao.watchAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Live poster lookup for watchlist items, keyed by lowercased
+     * contentId (= series_title for shows).  The stored
+     * [WatchlistEntity.artworkUrl] is a snapshot from add-time and is
+     * often empty (e.g. a show added before its cover/TMDB poster
+     * existed).  Resolving against the current movies/series tables makes
+     * the watchlist thumbnails self-heal as art arrives — same approach
+     * the search screen uses.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val watchlistPosters: StateFlow<Map<String, String>> = watchlistDao.watchAll()
+        .mapLatest { items ->
+            val map = HashMap<String, String>()
+            val movieIds = items.filter { it.contentType != "show" }.map { it.contentId }
+            val showTitles = items.filter { it.contentType == "show" }.map { it.contentId }
+            if (movieIds.isNotEmpty()) {
+                movieDao.postersForContentIds(movieIds).forEach {
+                    if (it.posterUrl.isNotBlank()) map[it.contentId.lowercase()] = it.posterUrl
+                }
+            }
+            if (showTitles.isNotEmpty()) {
+                seriesDao.postersForTitles(showTitles).forEach {
+                    if (it.posterUrl.isNotBlank()) map[it.seriesTitle.lowercase()] = it.posterUrl
+                }
+            }
+            map
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     // -- Genre + provider rails (built in background) ------------------
 

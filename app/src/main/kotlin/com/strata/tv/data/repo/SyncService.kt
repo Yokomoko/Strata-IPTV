@@ -594,11 +594,16 @@ class SyncService @Inject constructor(
         sourceId: Int,
         sourceKey: String,
     ) {
+        // Collapse exact duplicates up front: the same movie is listed
+        // once per category by Xtream (e.g. a film in "Action" + "Drama"),
+        // all with the same stream URL.  Without this we'd mint a separate
+        // content_id per category (group_title is in the hash) and show the
+        // film twice.  distinctBy keeps the first listing per stream URL.
+        val deduped = entries.distinctBy { it.streamUrl }
+
         // Chunk the persist so peak memory stays bounded even on very
         // large catalogues (300k+ entries seen on premium IPTV panels).
-        // 2000 × ~250 bytes ≈ 500 KB per intermediate list × 2 tables
-        // ≈ 1 MB peak — vs. 200+ MB without chunking.
-        for (chunk in entries.chunked(2000)) {
+        for (chunk in deduped.chunked(2000)) {
             val contentRows = ArrayList<ContentItemEntity>(chunk.size)
             val movieRows = ArrayList<MovieEntity>(chunk.size)
 
@@ -816,20 +821,21 @@ class SyncService @Inject constructor(
     ) {
         if (snapshot.isEmpty()) return
         val rows = snapshot.map { meta ->
-            // Preserve totals/last-seen counters across re-sync — if a
-            // row already exists, we only need to update xtream_series_id.
-            // If it doesn't, we insert a fresh row with sane defaults.
-            // SeriesEnrichmentService will fill in poster/backdrop/plot
-            // separately when it next runs.
+            // Preserve totals/last-seen counters across re-sync.  Fill the
+            // provider `cover` as the poster instantly (like movies) so the
+            // series isn't blank pre-TMDB — but only when we don't already
+            // have a (TMDB) poster, so enrichment can still upgrade it.
             val existing = seriesDao.byTitle(meta.title)
             existing?.copy(
                 xtreamSeriesId = meta.xtreamSeriesId,
                 groupTitle = meta.groupTitle,
+                posterUrl = existing.posterUrl.ifBlank { meta.cover },
             )
                 ?: SeriesEntity(
                     seriesTitle = meta.title,
                     xtreamSeriesId = meta.xtreamSeriesId,
                     groupTitle = meta.groupTitle,
+                    posterUrl = meta.cover,
                 )
         }
         seriesDao.upsertAll(rows)

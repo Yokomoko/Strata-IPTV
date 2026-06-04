@@ -99,3 +99,25 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
         )
     }
 }
+
+/**
+ * v8 → v9: adds `user_hidden` to `movies` and `series`.
+ *
+ * This is the column that distinguishes a *manual* "Ignore this film /
+ * show" from a *filter-derived* hide (language / genre / year).  Before
+ * this, manual ignores lived in the single `hidden` column, which the
+ * post-sync filter recompute would happily un-hide again — so ignored
+ * items kept coming back after every sync.  The recompute now ORs
+ * `user_hidden` into the effective `hidden` flag, so a manual ignore is
+ * sticky and survives both re-sync and filter relaxes.
+ *
+ * Default 0 — existing rows are treated as "not manually hidden", which
+ * is correct: anything currently hidden was hidden by a filter rule and
+ * should remain reversible.
+ */
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE movies ADD COLUMN user_hidden INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE series ADD COLUMN user_hidden INTEGER NOT NULL DEFAULT 0")
+    }
+}

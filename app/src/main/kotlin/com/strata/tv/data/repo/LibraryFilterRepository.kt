@@ -39,11 +39,14 @@ class LibraryFilterRepository @Inject constructor(
     }
 
     suspend fun hideMovie(contentId: String) {
-        movieDao.setHiddenByContentId(contentId, true)
+        // setUserHidden (not setHidden): marks the sticky user_hidden flag
+        // so the manual ignore survives re-sync and isn't un-hidden by the
+        // post-sync filter recompute.
+        movieDao.setUserHiddenByContentId(contentId, true)
     }
 
     suspend fun hideSeries(seriesTitle: String) {
-        seriesDao.setHidden(seriesTitle, true)
+        seriesDao.setUserHidden(seriesTitle, true)
     }
 
     /**
@@ -96,7 +99,10 @@ class LibraryFilterRepository @Inject constructor(
         val excludedGenres = s.excludedGenres
         val minYear = s.minimumYear
 
-        fun shouldHide(language: String, genre: String, year: Int?): Boolean {
+        // Filter-derived hide decision (language / genre / year).  The
+        // caller ORs in the sticky `user_hidden` flag so a manual "Ignore
+        // this film" is never un-hidden by a filter relax.
+        fun shouldHideByFilters(language: String, genre: String, year: Int?): Boolean {
             val langWanted = wanted.isEmpty() || language in wanted
             val langExcluded = language in excludedLangs
             val genreExcluded = excludedGenres.any { g ->
@@ -119,7 +125,11 @@ class LibraryFilterRepository @Inject constructor(
         val movieToShow = mutableListOf<Int>()
         for (m in allMovies) {
             if (m.tmdbId == 0) continue
-            val should = shouldHide(m.language, m.genre, m.year)
+            // Effective hide = filter rule OR sticky manual ignore.  The
+            // userHidden term is what stops a manual "Ignore film" from
+            // being resurrected here when its language/genre/year would
+            // otherwise pass the filters.
+            val should = shouldHideByFilters(m.language, m.genre, m.year) || m.userHidden
             if (should && !m.hidden) movieToHide += m.id
             else if (!should && m.hidden) movieToShow += m.id
         }
@@ -135,7 +145,7 @@ class LibraryFilterRepository @Inject constructor(
         val seriesToShow = mutableListOf<Int>()
         for (s2 in allSeries) {
             if (s2.tmdbId == 0) continue
-            val should = shouldHide(s2.language, s2.genre, s2.firstAirYear)
+            val should = shouldHideByFilters(s2.language, s2.genre, s2.firstAirYear) || s2.userHidden
             if (should && !s2.hidden) seriesToHide += s2.id
             else if (!should && s2.hidden) seriesToShow += s2.id
         }

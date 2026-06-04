@@ -86,7 +86,8 @@ object ChannelCategorizer {
     private val rules: Map<String, List<String>> = mapOf(
         "Sport" to listOf(
             "sky sports", "tnt sport", "bt sport", "eurosport", "espn",
-            "premier sports", "racing", "at the races", "mutv", "lfctv", "lfc",
+            "premier sports", "premier league", "sky premier", "racing",
+            "at the races", "mutv", "lfctv", "lfc",
             "setanta", "supersport", "box office", "dazn", "viaplay",
             "formula 1", "formula1", " f1 ", "f1 tv",
             "golf", "tennis", "cricket", "boxing", "ufc",
@@ -156,37 +157,49 @@ object ChannelCategorizer {
     )
 
     /**
+     * Order in which channel-name rules are evaluated.  Specific buckets
+     * (Sport / Cinema / Kids / …) are checked BEFORE the Entertainment
+     * catch-all so e.g. "Sky Sports …" classifies as Sport, not swallowed
+     * by a stray Entertainment match.
+     */
+    private val ruleMatchOrder: List<String> = listOf(
+        "Sport", "Cinema", "Kids", "Music", "Documentaries",
+        "Shopping", "International", "Entertainment",
+    )
+
+    /**
      * Classify [displayName] within its [groupTitle].
      *
-     * 1. For non-"United Kingdom" groups, map the group title to a
-     *    known category via [groupToCategory], defaulting to
-     *    Entertainment.
-     * 2. For UK channels, strip quality prefixes and match substrings
-     *    against [rules].  First category to hit wins.
-     * 3. Anything that doesn't match any rule → Entertainment.
+     * Channel-name rules are broadcaster-specific and reliable, so we try
+     * them FIRST for every channel — regardless of how the provider
+     * prefixes its group titles.  (Real M3U groups look like "UK | Sky
+     * Sports" or "UK| Movies", never the literal "United Kingdom" this
+     * used to gate on — which meant the name rules never ran and every UK
+     * channel fell through to the group-keyword map, mislabelling e.g.
+     * Sky Sports / Sky Cinema as Entertainment or International.)
+     *
+     * 1. Strip quality prefixes, match the name against [rules] in
+     *    specificity order — first category to hit wins.
+     * 2. No name rule matched → map the group title via [groupToCategory]
+     *    (catches Peacock / Paramount / foreign-language groups).
+     * 3. Still nothing → Entertainment.
      */
     fun categorise(displayName: String, groupTitle: String): String {
-        // Non-UK groups — map by group title.
-        if (groupTitle != "United Kingdom") {
-            val lower = groupTitle.lowercase()
-            for ((keyword, cat) in groupToCategory) {
-                if (lower.contains(keyword)) return cat
-            }
-            return "Entertainment" // Unknown non-UK group → Entertainment
-        }
-
-        // UK channels — match by display name.
         val stripped = displayName.lowercase().replace(qualityPrefix, "").trim()
 
-        for (cat in displayOrder) {
+        for (cat in ruleMatchOrder) {
             val patterns = rules[cat] ?: continue
             for (p in patterns) {
                 if (stripped.contains(p)) return cat
             }
         }
 
-        if ("amazon uk" in displayName.lowercase()) return "Entertainment"
+        // No broadcaster name rule matched — fall back to group keywords.
+        val lowerGroup = groupTitle.lowercase()
+        for ((keyword, cat) in groupToCategory) {
+            if (lowerGroup.contains(keyword)) return cat
+        }
 
-        return "Entertainment" // Unmatched UK channels → Entertainment
+        return "Entertainment"
     }
 }

@@ -124,6 +124,14 @@ data class MovieEntity(
     @ColumnInfo(name = "tmdb_id") val tmdbId: Int = 0,
     @ColumnInfo(name = "hidden") val hidden: Boolean = false,
     @ColumnInfo(name = "trailer_url", defaultValue = "") val trailerUrl: String = "",
+    /**
+     * Sticky user intent: the user explicitly chose "Ignore this film".
+     * Distinct from [hidden] (the *effective* visibility, which the
+     * filter recompute derives from language/genre/year settings).
+     * The recompute ORs this in so a manual ignore survives re-sync and
+     * is never un-hidden by a filter relax.  See LibraryFilterRepository.
+     */
+    @ColumnInfo(name = "user_hidden", defaultValue = "0") val userHidden: Boolean = false,
 )
 
 /**
@@ -196,6 +204,8 @@ data class SeriesEntity(
      */
     @ColumnInfo(name = "xtream_series_id", defaultValue = "NULL")
     val xtreamSeriesId: Int? = null,
+    /** Sticky "Ignore this show" intent — see MovieEntity.userHidden. */
+    @ColumnInfo(name = "user_hidden", defaultValue = "0") val userHidden: Boolean = false,
 ) {
     /** Convenience: there are episodes the user hasn't seen mentioned yet. */
     val hasNewEpisodes: Boolean

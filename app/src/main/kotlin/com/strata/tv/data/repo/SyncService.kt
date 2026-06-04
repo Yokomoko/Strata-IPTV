@@ -618,8 +618,16 @@ class SyncService @Inject constructor(
             }
 
             db.withTransaction {
+                // content_items is 100% parse-derived (stream URL, group,
+                // tvg-*), so a full upsert is correct — it refreshes those
+                // from the latest playlist.
                 contentDao.upsertAll(contentRows)
-                movieDao.upsertAll(movieRows)
+                // movies carries TMDB enrichment + user flags, so we must
+                // NOT @Upsert (that resets every column to defaults on each
+                // sync — issue: foreign content / ignores returning, posters
+                // vanishing).  insertNewOnly leaves existing rows untouched;
+                // brand-new movies start blank and get enriched.
+                movieDao.insertNewOnly(movieRows)
             }
         }
     }
@@ -682,8 +690,15 @@ class SyncService @Inject constructor(
             //     badge fires on the delta.
             //   - Otherwise -> seen = previousSeen (preserve as-is).
             val newTotalEpisodes = dedupedEpisodes.size
-            val previousTotal = seriesDao.getTotalEpisodes(titleForSeries)
-            val previousSeen = seriesDao.getLastSeenTotalEpisodes(titleForSeries)
+            val newTotalSeasons = dedupedEpisodes.mapNotNull { it.seasonNumber }.maxOrNull() ?: 0
+            // Read-modify-write so a re-sync NEVER wipes the series'
+            // TMDB enrichment (poster/plot/genre/tmdb_id) or user flags
+            // (hidden, user_hidden, is_favourite).  Only the parse-derived
+            // counts + NEW-badge bookkeeping are refreshed.  Mirrors the
+            // pattern already used in persistSeriesCatalogue.
+            val existing = seriesDao.byTitle(titleForSeries)
+            val previousTotal = existing?.totalEpisodes
+            val previousSeen = existing?.lastSeenTotalEpisodes
             val nextLastSeen = when {
                 previousTotal == null -> newTotalEpisodes
                 newTotalEpisodes > previousTotal -> previousTotal
@@ -691,11 +706,13 @@ class SyncService @Inject constructor(
             }
 
             seriesRows.add(
-                SeriesEntity(
+                existing?.copy(
+                    totalSeasons = newTotalSeasons,
+                    totalEpisodes = newTotalEpisodes,
+                    lastSeenTotalEpisodes = nextLastSeen,
+                ) ?: SeriesEntity(
                     seriesTitle = titleForSeries,
-                    totalSeasons = dedupedEpisodes
-                        .mapNotNull { it.seasonNumber }
-                        .maxOrNull() ?: 0,
+                    totalSeasons = newTotalSeasons,
                     totalEpisodes = newTotalEpisodes,
                     lastSeenTotalEpisodes = nextLastSeen,
                 ),
@@ -739,8 +756,12 @@ class SyncService @Inject constructor(
 
         db.withTransaction {
             contentDao.upsertAll(contentRows)
+            // seriesRows were built via read-modify-write above, so they
+            // already carry the existing enrichment — upsert is safe here.
             seriesDao.upsertAll(seriesRows)
-            episodeDao.upsertAll(episodeRows)
+            // episodes carry per-episode watched/resume — insertNewOnly so
+            // a re-sync doesn't reset the user's progress.
+            episodeDao.insertNewOnly(episodeRows)
         }
     }
 

@@ -147,6 +147,19 @@ interface MovieDao {
     @Upsert
     suspend fun upsertAll(movies: List<MovieEntity>)
 
+    /**
+     * Insert only movies that don't already exist (matched on the unique
+     * `content_id` index).  Existing rows are left COMPLETELY untouched —
+     * critically, this preserves all TMDB enrichment (poster, language,
+     * genre, tmdb_id) and user flags (hidden, user_hidden, is_favourite,
+     * watched, resume_position_ms) that a full `@Upsert` would wipe back
+     * to defaults on every re-sync.  Parse-derived fields (title/year)
+     * are owned by enrichment after the first import, so not refreshing
+     * them on re-sync is correct.
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertNewOnly(movies: List<MovieEntity>)
+
     @Query("SELECT * FROM movies WHERE hidden = 0 ORDER BY year DESC")
     fun watchAllByYear(): Flow<List<MovieEntity>>
 
@@ -315,7 +328,9 @@ interface MovieDao {
     @Query(
         """
         UPDATE movies SET poster_url = :poster, genre = :genre, rating = :rating,
-            language = :language, hidden = :hidden, tmdb_id = :tmdbId
+            language = :language,
+            hidden = CASE WHEN user_hidden = 1 THEN 1 ELSE :hidden END,
+            tmdb_id = :tmdbId
         WHERE content_id = :contentId
         """,
     )
@@ -389,6 +404,16 @@ interface MovieDao {
     /** Set the hidden flag on a movie by content_id (stable across syncs). */
     @Query("UPDATE movies SET hidden = :hidden WHERE content_id = :contentId")
     suspend fun setHiddenByContentId(contentId: String, hidden: Boolean)
+
+    /**
+     * Manual "Ignore this film" — sets BOTH the sticky `user_hidden`
+     * intent and the effective `hidden` flag.  user_hidden survives
+     * re-sync (insertNewOnly never touches it) and the filter recompute
+     * ORs it back into `hidden`, so the ignore is permanent until the
+     * user explicitly un-ignores.
+     */
+    @Query("UPDATE movies SET hidden = :hidden, user_hidden = :hidden WHERE content_id = :contentId")
+    suspend fun setUserHiddenByContentId(contentId: String, hidden: Boolean)
 
     /**
      * Batch poster lookup by content_id.  Used by the search screen so
@@ -478,7 +503,8 @@ interface SeriesDao {
         """
         UPDATE series SET poster_url = :poster, backdrop_url = :backdrop,
             plot = :plot, genre = :genre, language = :language,
-            hidden = :hidden, tmdb_id = :tmdbId,
+            hidden = CASE WHEN user_hidden = 1 THEN 1 ELSE :hidden END,
+            tmdb_id = :tmdbId,
             total_seasons = :totalSeasons, total_episodes = :totalEpisodes
         WHERE series_title = :title
         """,
@@ -536,6 +562,11 @@ interface SeriesDao {
     /** Set the hidden flag on a single series by title. */
     @Query("UPDATE series SET hidden = :hidden WHERE series_title = :title")
     suspend fun setHidden(title: String, hidden: Boolean)
+
+    /** Manual "Ignore this show" — sets sticky user_hidden + effective hidden.
+     *  See [MovieDao.setUserHiddenByContentId]. */
+    @Query("UPDATE series SET hidden = :hidden, user_hidden = :hidden WHERE series_title = :title")
+    suspend fun setUserHidden(title: String, hidden: Boolean)
 
     /**
      * Focused update for [total_seasons] + [total_episodes] only —
@@ -680,6 +711,15 @@ interface SeriesDao {
 interface EpisodeDao {
     @Upsert
     suspend fun upsertAll(episodes: List<EpisodeEntity>)
+
+    /**
+     * Insert only episodes that don't already exist (unique `content_id`).
+     * Preserves the user's per-episode `watched` / `resume_position_ms`
+     * and any enriched `episode_title` that a full `@Upsert` would reset
+     * on every re-sync.
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertNewOnly(episodes: List<EpisodeEntity>)
 
     @Query("SELECT * FROM episodes WHERE series_title = :title COLLATE NOCASE ORDER BY season_number, episode_number")
     fun watchSeries(title: String): Flow<List<EpisodeEntity>>

@@ -229,6 +229,7 @@ class PlayerViewModel @Inject constructor(
     private var retryCount = 0
     private var retryJob: Job? = null
     private val maxRetries = 5
+    private var bufferingWatchdogJob: Job? = null
 
     // ── Subtitle tracks ─────────────────────────────────────────────
     private val _subtitleTracks = MutableStateFlow<List<SubtitleTrack>>(emptyList())
@@ -256,6 +257,32 @@ class PlayerViewModel @Inject constructor(
             val ended = playbackState == Player.STATE_ENDED
 
             _uiState.update { it.copy(isBuffering = buffering) }
+
+            // Buffering watchdog: if we sit in BUFFERING for too long with
+            // no progress, give up and surface an error instead of spinning
+            // forever.  This is the visible symptom when a stream is in a
+            // format the device can't actually play — e.g. 4K HEVC (L5.0)
+            // that the HW decoder rejects and the SW decoder is too slow to
+            // keep up with, so the buffer never fills.
+            if (buffering) {
+                bufferingWatchdogJob?.cancel()
+                bufferingWatchdogJob = viewModelScope.launch {
+                    delay(BUFFER_TIMEOUT_MS)
+                    if (_uiState.value.isBuffering) {
+                        retryJob?.cancel()
+                        _uiState.update {
+                            it.copy(
+                                isBuffering = false,
+                                errorMessage = "This stream is taking too long to load. " +
+                                    "It may be in a format this device can't play " +
+                                    "(e.g. 4K / HEVC). Try again or go back.",
+                            )
+                        }
+                    }
+                }
+            } else {
+                bufferingWatchdogJob?.cancel()
+            }
 
             // Clear error overlay when the stream successfully recovers.
             if (playbackState == Player.STATE_READY && _uiState.value.errorMessage != null) {
@@ -310,6 +337,25 @@ class PlayerViewModel @Inject constructor(
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            // Codec-capability failures can never succeed on a retry — the
+            // device simply can't decode this profile/level.  Fail fast with
+            // a clear message instead of burning 5 pointless retries.
+            if (error.errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES ||
+                error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
+                error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED
+            ) {
+                bufferingWatchdogJob?.cancel()
+                retryJob?.cancel()
+                _uiState.update {
+                    it.copy(
+                        isBuffering = false,
+                        errorMessage = "This episode is in a video format this device " +
+                            "can't play (e.g. 4K / HEVC). It isn't a connection problem — " +
+                            "the stream itself is unsupported.",
+                    )
+                }
+                return
+            }
             if (retryCount < maxRetries) {
                 retryCount++
                 val delayMs = (1000L * (1 shl (retryCount - 1).coerceAtMost(4)))
@@ -946,6 +992,14 @@ class PlayerViewModel @Inject constructor(
     companion object {
         /** If <= 3 minutes remain, treat the episode as finished. */
         const val CREDITS_THRESHOLD_MS = 180_000L
+
+        /**
+         * Max continuous time the player may sit in BUFFERING before we
+         * give up and surface an error.  Long enough to ride out a slow
+         * first load / network dip on Fire Stick WiFi, short enough that
+         * an unplayable (e.g. 4K HEVC) stream doesn't spin forever.
+         */
+        const val BUFFER_TIMEOUT_MS = 40_000L
     }
 
     private fun insertWatchHistory() {
@@ -969,6 +1023,8 @@ class PlayerViewModel @Inject constructor(
         hideJob?.cancel()
         overlayHideJob?.cancel()
         countdownJob?.cancel()
+        retryJob?.cancel()
+        bufferingWatchdogJob?.cancel()
         player.removeListener(playerListener)
         player.release()
         super.onCleared()

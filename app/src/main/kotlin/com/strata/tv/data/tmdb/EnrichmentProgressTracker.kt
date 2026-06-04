@@ -37,29 +37,53 @@ class EnrichmentProgressTracker @Inject constructor() {
          * failed: …" instead of an unchanging spinner (issue #47).
          */
         val errorMessage: String? = null,
+        /**
+         * Monotonic display value — never decreases within a sync cycle
+         * (reset only by [startSync]).  The raw [fraction] can jump
+         * backwards when enrichment discovers more work and grows the
+         * total mid-pass (e.g. 89% → 70%); the sidebar ring reads this
+         * instead so it only ever moves forward.
+         */
+        val displayFraction: Float = 0f,
     ) {
         val fraction: Float
             get() = if (total > 0) (processed.toFloat() / total).coerceIn(0f, 1f) else 0f
         val percent: Int
-            get() = (fraction * 100).toInt()
+            get() = (displayFraction * 100).toInt()
     }
 
     private val _progress = MutableStateFlow(Progress())
     val progress: StateFlow<Progress> = _progress.asStateFlow()
 
+    /**
+     * Emit [next], setting its [Progress.displayFraction] to the running
+     * monotonic maximum so the ring never visibly regresses.  Pass
+     * [resetFloor] = true at the very start of a cycle (startSync) so a
+     * fresh sync begins from 0 again.
+     */
+    private fun emit(resetFloor: Boolean = false, transform: (Progress) -> Progress) {
+        _progress.update { current ->
+            val next = transform(current)
+            val floor = if (resetFloor) 0f else current.displayFraction
+            next.copy(displayFraction = maxOf(floor, next.fraction))
+        }
+    }
+
     /** Start the sync phase with an estimated total. */
     fun startSync(estimatedTotal: Int = 0) {
+        // Resets the monotonic floor — a brand-new sync cycle starts at 0.
         _progress.value = Progress(
             processed = 0,
             total = estimatedTotal,
             isRunning = true,
             label = "Syncing",
+            displayFraction = 0f,
         )
     }
 
     /** Update sync progress. Grows the estimate as more batches arrive. */
     fun syncAdvance(batchSize: Int) {
-        _progress.update {
+        emit {
             val newProcessed = it.processed + batchSize
             // If no fixed total yet, estimate 4x what we've seen so far.
             val est = if (it.total == 0) (newProcessed * 4).coerceAtLeast(1000) else it.total
@@ -71,11 +95,9 @@ class EnrichmentProgressTracker @Inject constructor() {
      *  Don't set processed = total yet — persistence still needs to run.
      *  Cap at 90% so the ring doesn't flash 100% prematurely. */
     fun syncComplete(totalParsed: Int) {
-        _progress.update {
+        emit {
             // Hold the ring at 90% during the persistence phase so it
             // doesn't appear "Done" while sync is still committing rows.
-            // startEnrichment() will reset to 0/enrichmentTotal afterwards,
-            // and finish() lands at 100%.
             it.copy(
                 processed = (totalParsed * 9 / 10).coerceAtLeast(0),
                 total = totalParsed.coerceAtLeast(1),
@@ -91,7 +113,10 @@ class EnrichmentProgressTracker @Inject constructor() {
             _progress.update { it.copy(isRunning = false) }
             return
         }
-        _progress.update {
+        // Don't reset the monotonic floor here — the ring carries on from
+        // wherever sync left it (≈90%) and only moves forward.  We keep
+        // the raw counters at 0/total for the "x of y enriched" label.
+        emit {
             it.copy(
                 processed = 0,
                 total = total,
@@ -105,7 +130,7 @@ class EnrichmentProgressTracker @Inject constructor() {
     /** Enrichment batch discovered — adds to the total and re-enables ring. */
     fun addWork(count: Int) {
         if (count <= 0) return
-        _progress.update {
+        emit {
             it.copy(
                 total = it.total + count,
                 isRunning = true,
@@ -116,12 +141,12 @@ class EnrichmentProgressTracker @Inject constructor() {
 
     /** One item enriched. */
     fun advance() {
-        _progress.update { it.copy(processed = it.processed + 1) }
+        emit { it.copy(processed = it.processed + 1) }
     }
 
-    /** All done. */
+    /** All done — land the ring at 100% before it disappears. */
     fun finish() {
-        _progress.update { it.copy(isRunning = false) }
+        _progress.update { it.copy(isRunning = false, displayFraction = 1f) }
     }
 
     /**

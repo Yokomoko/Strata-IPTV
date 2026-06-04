@@ -201,7 +201,7 @@ fun Shell(
                 onSelected = { nav.navigate(it) },
                 sidebarFocusRequester = nav.sidebarRequester,
                 modifier = Modifier.onFocusChanged { sidebarHasFocus = it.hasFocus },
-                enrichmentProgress = enrichmentProgress?.fraction ?: 0f,
+                enrichmentProgress = enrichmentProgress?.displayFraction ?: 0f,
                 enrichmentRunning = enrichmentProgress?.isRunning == true,
             )
 
@@ -238,7 +238,7 @@ fun Shell(
             exit = fadeOut(animationSpec = tween(durationMillis = 500)),
         ) {
             SplashOverlay(
-                enrichmentFraction = enrichmentProgress?.fraction ?: 0f,
+                enrichmentFraction = enrichmentProgress?.displayFraction ?: 0f,
                 enrichmentRunning = enrichmentProgress?.isRunning == true,
             )
         }

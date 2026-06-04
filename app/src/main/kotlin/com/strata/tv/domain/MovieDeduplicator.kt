@@ -97,9 +97,10 @@ class MovieDeduplicator @Inject constructor(
             if (variants.size <= 1) {
                 // No duplicates -- ensure the single entry is visible
                 // (it may have been hidden by a prior dedup run that
-                // grouped differently).
+                // grouped differently).  But NEVER un-hide a manual
+                // "Ignore this film" (user_hidden) — that's sticky.
                 val only = variants.first()
-                if (only.hidden) {
+                if (only.hidden && !only.userHidden) {
                     movieDao.setHidden(only.id, hidden = false)
                 }
                 continue
@@ -125,7 +126,10 @@ class MovieDeduplicator @Inject constructor(
                 .first()
 
             for (sm in scored) {
-                val shouldHide = sm.movie.id != winner.movie.id
+                // A losing variant is hidden; the winner is shown — UNLESS
+                // the user manually ignored it (user_hidden), in which case
+                // it stays hidden regardless of dedup outcome.
+                val shouldHide = sm.movie.id != winner.movie.id || sm.movie.userHidden
                 if (sm.movie.hidden != shouldHide) {
                     movieDao.setHidden(sm.movie.id, hidden = shouldHide)
                 }
@@ -248,9 +252,10 @@ class MovieDeduplicator @Inject constructor(
 
         for ((normTitle, variants) in groups) {
             if (variants.size <= 1) {
-                // No duplicates — ensure the single entry is visible.
+                // No duplicates — ensure the single entry is visible,
+                // but never un-hide a manual "Ignore this show".
                 val only = variants.first()
-                if (only.hidden) {
+                if (only.hidden && !only.userHidden) {
                     seriesDao.setHidden(only.seriesTitle, hidden = false)
                 }
                 continue
@@ -277,7 +282,7 @@ class MovieDeduplicator @Inject constructor(
                 .first()
 
             for (sm in scored) {
-                val shouldHide = sm.series.id != winner.series.id
+                val shouldHide = sm.series.id != winner.series.id || sm.series.userHidden
                 if (sm.series.hidden != shouldHide) {
                     seriesDao.setHidden(sm.series.seriesTitle, hidden = shouldHide)
                 }

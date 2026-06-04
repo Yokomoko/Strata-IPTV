@@ -134,3 +134,14 @@ val MIGRATION_9_10 = object : Migration(9, 10) {
         db.execSQL("ALTER TABLE series ADD COLUMN group_title TEXT NOT NULL DEFAULT ''")
     }
 }
+
+/**
+ * v10 → v11: adds `alt_stream_urls` to `episodes` — newline-separated
+ * lower-quality fallback URLs so the player can drop to a 1080p/720p
+ * source when the primary (often 4K HEVC) can't be decoded.
+ */
+val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE episodes ADD COLUMN alt_stream_urls TEXT NOT NULL DEFAULT ''")
+    }
+}

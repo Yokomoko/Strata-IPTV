@@ -742,6 +742,15 @@ interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE series_title = :title COLLATE NOCASE ORDER BY season_number, episode_number")
     fun watchSeries(title: String): Flow<List<EpisodeEntity>>
 
+    /** Single episode by content_id — the player reads `alt_stream_urls`
+     *  from here to fall back to a lower-quality source on decode failure. */
+    @Query("SELECT * FROM episodes WHERE content_id = :contentId LIMIT 1")
+    suspend fun byContentId(contentId: String): EpisodeEntity?
+
+    /** Refresh fallback URLs without disturbing watched / resume columns. */
+    @Query("UPDATE episodes SET alt_stream_urls = :altUrls WHERE content_id = :contentId")
+    suspend fun updateAltUrls(contentId: String, altUrls: String)
+
     /** Plain count of stored episodes for a series — used by the show
      *  detail screen to decide whether a lazy `get_series_info` fetch
      *  is needed before rendering. */

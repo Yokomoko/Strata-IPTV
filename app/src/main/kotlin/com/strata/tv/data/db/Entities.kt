@@ -243,6 +243,13 @@ data class EpisodeEntity(
     @ColumnInfo(name = "runtime") val runtime: Int? = null,
     @ColumnInfo(name = "resume_position_ms") val resumePositionMs: Long = 0,
     @ColumnInfo(name = "watched") val watched: Boolean = false,
+    /**
+     * Newline-separated lower-quality fallback URLs for this episode
+     * (best → worst), populated from the provider's multiple per-episode
+     * sources.  The player drops to the next one when the primary
+     * [streamUrl] fails to decode.  Empty for single-source episodes.
+     */
+    @ColumnInfo(name = "alt_stream_urls", defaultValue = "") val altStreamUrls: String = "",
 )
 
 // ---------------------------------------------------------------------------

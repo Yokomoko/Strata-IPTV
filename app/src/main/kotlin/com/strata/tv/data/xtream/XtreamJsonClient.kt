@@ -196,53 +196,49 @@ class XtreamJsonClient @Inject constructor(
     ): List<M3uEntry> {
         val info: XtreamSeriesInfo = json.decodeFromString(body)
 
-        // Dedup by (season, episode_num) — providers commonly return
-        // multiple variants per slot (4K + 1080p + 720p sources) and
-        // we previously inserted all of them, giving the show detail
-        // screen 3-4 cards of "Episode 1" for Season 5 of The Boys.
-        // Keep the highest-quality variant per slot, falling back to
-        // the last entry when no quality signal is present.
+        // Group variants by (season, episode_num).  Providers commonly
+        // return multiple variants per slot (4K + 1080p + 720p sources).
+        // We keep ONE card per slot, but instead of throwing the other
+        // variants away we keep their URLs as fallbacks so the player can
+        // drop to a lower quality when the best one can't be decoded
+        // (e.g. a 4K HEVC source on a Fire Stick that only does 1080p).
         data class SlotKey(val season: Int, val episode: Int)
-        val bestPerSlot = mutableMapOf<SlotKey, XtreamEpisode>()
+        val variantsPerSlot = linkedMapOf<SlotKey, MutableList<XtreamEpisode>>()
         for ((seasonKey, seasonEpisodes) in info.episodes.orEmpty()) {
             val season = seasonKey.toIntOrNull() ?: continue
             for (ep in seasonEpisodes) {
                 val episodeNum = ep.episodeNum?.toIntOrNull() ?: continue
-                val key = SlotKey(season, episodeNum)
-                val existing = bestPerSlot[key]
-                if (existing == null) {
-                    bestPerSlot[key] = ep
-                } else {
-                    val existingQ = MovieDeduplicator.detectQuality(
-                        existing.title.orEmpty(),
-                        "$base/series/$user/$pass/${existing.id}.${existing.containerExtension.orEmpty()}",
-                    ).ordinal
-                    val newQ = MovieDeduplicator.detectQuality(
-                        ep.title.orEmpty(),
-                        "$base/series/$user/$pass/${ep.id}.${ep.containerExtension.orEmpty()}",
-                    ).ordinal
-                    if (newQ >= existingQ) bestPerSlot[key] = ep
-                }
+                variantsPerSlot.getOrPut(SlotKey(season, episodeNum)) { mutableListOf() }.add(ep)
             }
         }
 
-        return bestPerSlot.entries.map { (key, ep) ->
+        fun urlFor(ep: XtreamEpisode): String {
             val ext = ep.containerExtension?.takeIf { it.isNotBlank() } ?: "mp4"
-            val streamUrl = "$base/series/$user/$pass/${ep.id}.$ext"
+            return "$base/series/$user/$pass/${ep.id}.$ext"
+        }
+
+        return variantsPerSlot.entries.map { (key, variants) ->
+            // Sort variants best-quality first.
+            val sorted = variants.sortedByDescending { ep ->
+                MovieDeduplicator.detectQuality(ep.title.orEmpty(), urlFor(ep)).ordinal
+            }
+            val best = sorted.first()
+            val alts = sorted.drop(1).map { urlFor(it) }
             val displayName = "$seriesTitle S%02dE%02d".format(key.season, key.episode)
             M3uEntry(
                 displayName = displayName,
-                streamUrl = streamUrl,
+                streamUrl = urlFor(best),
                 groupTitle = groupTitle,
                 tvgId = seriesId.toString(),
-                tvgName = ep.title ?: displayName,
-                tvgLogo = ep.info?.movieImage.orEmpty(),
+                tvgName = best.title ?: displayName,
+                tvgLogo = best.info?.movieImage.orEmpty(),
                 tvgType = "series",
                 extinfDuration = 0,
                 contentType = ContentType.Show,
                 seriesTitle = seriesTitle,
                 seasonNumber = key.season,
                 episodeNumber = key.episode,
+                altStreamUrls = alts,
             )
         }
     }

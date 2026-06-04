@@ -24,4 +24,12 @@ data class M3uEntry(
     val seriesTitle: String? = null,
     val seasonNumber: Int? = null,
     val episodeNumber: Int? = null,
+    /**
+     * Alternate stream URLs for the SAME logical item at lower quality,
+     * ordered next-best → worst.  Xtream `get_series_info` commonly
+     * returns 4K + 1080p + 720p sources per episode; [streamUrl] is the
+     * best one and these are the fallbacks the player drops to when the
+     * best one can't be decoded (e.g. 4K HEVC on a 1080p Fire Stick).
+     */
+    val altStreamUrls: List<String> = emptyList(),
 )

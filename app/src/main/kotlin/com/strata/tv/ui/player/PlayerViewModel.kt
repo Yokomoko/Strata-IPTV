@@ -112,17 +112,17 @@ class PlayerViewModel @Inject constructor(
         .build()
 
     /**
-     * Renderers tuned for Fire Stick codec quirks.  `enableDecoderFallback`
-     * is the important one: when a stream is tagged with an HEVC profile/
-     * level the hardware decoder rejects (e.g. `hvc1.2.4.L150` = HEVC
-     * Level 5.0, which threw `NO_EXCEEDS_CAPABILITIES` on Euphoria),
-     * ExoPlayer would normally fail outright.  With fallback enabled it
-     * retries on a secondary (software) decoder instead of dying, so the
-     * episode plays even though the primary HW codec refused it.
+     * Renderers for Fire Stick.  We deliberately DON'T enable software
+     * decoder fallback: for a stream the HW decoder can't handle (e.g.
+     * 4K HEVC L5.0), SW decoding 4K is too slow and just buffers forever.
+     * Instead we let the capability error fire fast and switch to a
+     * LOWER-QUALITY VARIANT of the same episode (see variantUrls /
+     * tryNextVariant) — the provider ships 1080p/720p alongside the 4K,
+     * and those decode fine in hardware.
      */
     private val renderersFactory: androidx.media3.exoplayer.DefaultRenderersFactory =
         androidx.media3.exoplayer.DefaultRenderersFactory(application)
-            .setEnableDecoderFallback(true)
+            .setEnableDecoderFallback(false)
 
     /**
      * HTTP datasource configured for IPTV streams.  Two important
@@ -231,6 +231,14 @@ class PlayerViewModel @Inject constructor(
     private val maxRetries = 5
     private var bufferingWatchdogJob: Job? = null
 
+    // ── Quality-variant fallback ─────────────────────────────────────
+    // Ordered best→worst stream URLs for the current item.  When the
+    // best one can't be decoded (4K HEVC on a 1080p Fire Stick) or stalls,
+    // we step down to the next.  Populated for episodes from the stored
+    // alt_stream_urls; single-element for everything else.
+    private var variantUrls: List<String> = emptyList()
+    private var variantIndex = 0
+
     // ── Subtitle tracks ─────────────────────────────────────────────
     private val _subtitleTracks = MutableStateFlow<List<SubtitleTrack>>(emptyList())
     val subtitleTracks: StateFlow<List<SubtitleTrack>> = _subtitleTracks.asStateFlow()
@@ -269,6 +277,10 @@ class PlayerViewModel @Inject constructor(
                 bufferingWatchdogJob = viewModelScope.launch {
                     delay(BUFFER_TIMEOUT_MS)
                     if (_uiState.value.isBuffering) {
+                        // A long stall can be a too-heavy codec or just a
+                        // slow source — stepping down to a lower-quality
+                        // variant fixes both when one is available.
+                        if (tryNextVariant()) return@launch
                         retryJob?.cancel()
                         _uiState.update {
                             it.copy(
@@ -344,14 +356,18 @@ class PlayerViewModel @Inject constructor(
                 error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
                 error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED
             ) {
+                // The device can't decode this variant — switch to a
+                // lower-quality source rather than retrying (a retry of
+                // the SAME format can never succeed).
+                if (tryNextVariant()) return
                 bufferingWatchdogJob?.cancel()
                 retryJob?.cancel()
                 _uiState.update {
                     it.copy(
                         isBuffering = false,
                         errorMessage = "This episode is in a video format this device " +
-                            "can't play (e.g. 4K / HEVC). It isn't a connection problem — " +
-                            "the stream itself is unsupported.",
+                            "can't play (e.g. 4K / HEVC) and no lower-quality version " +
+                            "is available from the provider.",
                     )
                 }
                 return
@@ -369,6 +385,9 @@ class PlayerViewModel @Inject constructor(
                     player.prepare()
                 }
             } else {
+                // Exhausted retries on this variant — try a lower-quality
+                // one before giving up entirely.
+                if (tryNextVariant()) return
                 _uiState.update {
                     it.copy(errorMessage = error.localizedMessage ?: "Stream unavailable after $maxRetries retries")
                 }
@@ -474,6 +493,25 @@ class PlayerViewModel @Inject constructor(
             startPeriodicSave()
         }
 
+        // Seed the variant list with the primary URL; for episodes, load
+        // the lower-quality fallbacks asynchronously so a decode failure
+        // can step down instead of dead-ending.
+        variantUrls = listOf(streamUrl)
+        variantIndex = 0
+        if (contentType == "show" && contentId.isNotBlank()) {
+            viewModelScope.launch {
+                val ep = runCatching { episodeDao.byContentId(contentId) }.getOrNull()
+                val alts = ep?.altStreamUrls
+                    ?.split("\n")
+                    ?.map { it.trim() }
+                    ?.filter { it.isNotEmpty() }
+                    .orEmpty()
+                if (alts.isNotEmpty()) {
+                    variantUrls = listOf(streamUrl) + alts
+                }
+            }
+        }
+
         player.setMediaItem(MediaItem.fromUri(streamUrl))
         player.playWhenReady = true
         player.prepare()
@@ -520,6 +558,32 @@ class PlayerViewModel @Inject constructor(
         retryCount = 0
         _uiState.update { it.copy(errorMessage = null, isBuffering = true) }
         player.prepare()
+    }
+
+    /**
+     * Step down to the next lower-quality variant of the current item,
+     * if one exists.  Returns true if it switched (caller should treat
+     * the failure as handled), false when we've run out of variants.
+     */
+    private fun tryNextVariant(): Boolean {
+        if (variantIndex + 1 >= variantUrls.size) return false
+        variantIndex++
+        val next = variantUrls[variantIndex]
+        android.util.Log.i(
+            "PlayerVM",
+            "Stepping down to variant ${variantIndex + 1}/${variantUrls.size}: $next",
+        )
+        retryCount = 0
+        retryJob?.cancel()
+        bufferingWatchdogJob?.cancel()
+        // Clear the error so the overlay doesn't flash; just show the
+        // buffering spinner while the lower-quality source loads.
+        _uiState.update { it.copy(errorMessage = null, isBuffering = true) }
+        streamUrl = next
+        player.setMediaItem(MediaItem.fromUri(next))
+        player.playWhenReady = true
+        player.prepare()
+        return true
     }
 
     // ── Subtitle API ────────────────────────────────────────────────

@@ -153,11 +153,12 @@ class ShowDetailViewModel @Inject constructor(
      */
     private suspend fun ensureEpisodesLoaded(series: SeriesEntity) {
         val xtreamId = series.xtreamSeriesId ?: return
+        // Re-fetch once per app session (guarded by lazyFetched) even if
+        // episodes already exist — the provider adds new episodes over
+        // time (e.g. a weekly E08 that wasn't out at first sync), and the
+        // old "count > 0 → skip forever" check meant they never appeared.
+        // insertNewOnly below keeps it cheap and preserves watch progress.
         if (xtreamId in lazyFetched) return
-        if (episodeDao.countForSeries(series.seriesTitle) > 0) {
-            lazyFetched += xtreamId
-            return
-        }
         val provider = settingsRepo.current().provider
         if (provider.host.isBlank() ||
             provider.username.isBlank() ||
@@ -213,10 +214,22 @@ class ShowDetailViewModel @Inject constructor(
                 seasonNumber = entry.seasonNumber ?: 0,
                 episodeNumber = entry.episodeNumber ?: 0,
                 streamUrl = entry.streamUrl,
+                altStreamUrls = entry.altStreamUrls.joinToString("\n"),
             )
         }
         contentDao.upsertAll(contentRows)
-        episodeDao.upsertAll(episodeRows)
+        // insertNewOnly (not upsert): preserves the user's per-episode
+        // watched / resume position on episodes that already exist, while
+        // still adding newly-released ones (e.g. E08).
+        episodeDao.insertNewOnly(episodeRows)
+        // Refresh the fallback URLs on every fetched episode without
+        // touching progress — covers episodes inserted before the
+        // alt_stream_urls column existed.
+        for (row in episodeRows) {
+            if (row.altStreamUrls.isNotEmpty()) {
+                episodeDao.updateAltUrls(row.contentId, row.altStreamUrls)
+            }
+        }
 
         // Update the series header's counts so the Shows-screen card
         // subtitle reflects what actually got persisted.  Before this,

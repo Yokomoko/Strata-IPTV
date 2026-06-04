@@ -307,11 +307,17 @@ interface MovieDao {
     @Query("SELECT COUNT(*) FROM movies WHERE hidden = 0 AND (poster_url = '' OR genre = '' OR rating = 0.0 OR provider = '')")
     suspend fun countNeedingEnrichment(): Int
 
-    /** Movies eligible for TMDB enrichment (missing poster, genre, rating, or provider). */
+    /**
+     * Movies eligible for TMDB enrichment (missing poster, genre, rating,
+     * or provider).  Note: NOT gated on `hidden` — unenriched rows are
+     * hidden by policy (no TMDB match yet), but we still need to enrich
+     * them so they can be resolved + un-hidden.  Only manual ignores
+     * (`user_hidden`) are skipped, so we don't waste calls on those.
+     */
     @Query(
         """
         SELECT * FROM movies
-        WHERE hidden = 0
+        WHERE user_hidden = 0
           AND (poster_url = '' OR genre = '' OR rating = 0.0 OR provider = '')
         ORDER BY poster_url ASC, year DESC
         LIMIT :limit
@@ -522,7 +528,10 @@ interface SeriesDao {
     )
     fun watchByProvider(provider: String, limit: Int = 40): Flow<List<SeriesEntity>>
 
-    @Query("SELECT * FROM series WHERE poster_url = '' AND hidden = 0 LIMIT :limit")
+    // Not gated on `hidden` — unenriched series are hidden by policy but
+    // still need enrichment so they can be resolved + un-hidden.  Manual
+    // ignores (user_hidden) are skipped.
+    @Query("SELECT * FROM series WHERE poster_url = '' AND user_hidden = 0 LIMIT :limit")
     suspend fun needingEnrichment(limit: Int = 200): List<SeriesEntity>
 
     /** Series with a TMDB ID but missing detail enrichment fields. */

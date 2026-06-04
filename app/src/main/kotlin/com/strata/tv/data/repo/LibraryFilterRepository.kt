@@ -125,17 +125,16 @@ class LibraryFilterRepository @Inject constructor(
         val movieToHide = mutableListOf<Int>()
         val movieToShow = mutableListOf<Int>()
         for (m in allMovies) {
-            // Foreign-category + year filters work even on UNENRICHED
-            // movies (tmdb_id == 0): an old foreign film TMDB never matched
-            // still has its category (content_items.group_title) and often
-            // a year parsed from its title — so "Kid Colter (1984)" can be
-            // dropped by the >1990 filter, and a "Hindi"/"RO" category by
-            // the foreign filter, without waiting for enrichment.
+            // No TMDB match yet → hide it.  We can't reliably filter an
+            // unenriched item (no language/genre/year, and most foreign
+            // junk falls here) so the policy is: hide until enrichment
+            // resolves it.  needingEnrichment still picks up hidden rows,
+            // so it gets retried; if it then matches AND passes the
+            // filters, enrichment's updateMetadata un-hides it.
             val foreignExcluded = com.strata.tv.domain.ForeignContentFilter
                 .shouldExclude(m.groupTitle, countryWhitelist)
-            val tooOld = minYear > 0 && m.year != null && m.year < minYear
             val should = if (m.tmdbId == 0) {
-                foreignExcluded || tooOld || m.userHidden
+                true
             } else {
                 shouldHideByFilters(m.language, m.genre, m.year) ||
                     m.userHidden || foreignExcluded
@@ -154,14 +153,13 @@ class LibraryFilterRepository @Inject constructor(
         val seriesToHide = mutableListOf<Int>()
         val seriesToShow = mutableListOf<Int>()
         for (s2 in allSeries) {
-            // Foreign-category exclusion works even for UNENRICHED shows
-            // (tmdb_id == 0) — that's the whole point, since an unmatched
-            // foreign show never gets a `language` to filter on.  It reads
-            // the stored group_title (e.g. "German", "Hindi").
+            // Same policy as movies: no TMDB match → hide until enrichment
+            // resolves it.  An unmatched foreign show has no language to
+            // filter on, so hiding-then-retrying is the reliable rule.
             val foreignExcluded = com.strata.tv.domain.ForeignContentFilter
                 .shouldExclude(s2.groupTitle, countryWhitelist)
             val should = if (s2.tmdbId == 0) {
-                foreignExcluded || s2.userHidden
+                true
             } else {
                 shouldHideByFilters(s2.language, s2.genre, s2.firstAirYear) ||
                     s2.userHidden || foreignExcluded

@@ -95,14 +95,12 @@ class MovieDeduplicator @Inject constructor(
 
         for ((normTitle, variants) in groups) {
             if (variants.size <= 1) {
-                // No duplicates -- ensure the single entry is visible
-                // (it may have been hidden by a prior dedup run that
-                // grouped differently).  But NEVER un-hide a manual
-                // "Ignore this film" (user_hidden) — that's sticky.
-                val only = variants.first()
-                if (only.hidden && !only.userHidden) {
-                    movieDao.setHidden(only.id, hidden = false)
-                }
+                // Single variant — nothing to dedupe.  Crucially we do NOT
+                // un-hide it: the filter recompute (language / year / genre /
+                // foreign-category) is the SOLE owner of visibility.  The old
+                // code un-hid any hidden single-variant row, which silently
+                // resurrected language-filtered titles (e.g. Spanish films)
+                // the recompute had just hidden.
                 continue
             }
 
@@ -126,40 +124,20 @@ class MovieDeduplicator @Inject constructor(
                 .first()
 
             val winnerUrl = streamUrls[winner.movie.contentId].orEmpty()
-            val deleteMovieIds = mutableListOf<Int>()
-            val deleteContentIds = mutableListOf<String>()
-            for (sm in scored) {
-                if (sm.movie.id == winner.movie.id) {
-                    // Winner is visible unless the user manually ignored it.
-                    if (sm.movie.hidden != sm.movie.userHidden) {
-                        movieDao.setHidden(sm.movie.id, hidden = sm.movie.userHidden)
-                    }
-                    continue
-                }
-                val smUrl = streamUrls[sm.movie.contentId].orEmpty()
-                if (smUrl.isNotBlank() && smUrl == winnerUrl) {
-                    // Exact duplicate — same stream, different category.
-                    // DELETE it (not hide): the filter recompute doesn't
-                    // know it's a dup and would un-hide it back into view.
-                    deleteMovieIds += sm.movie.id
-                    deleteContentIds += sm.movie.contentId
-                } else {
-                    // Genuine quality variant — hide it (kept as a fallback
-                    // URL below).
-                    if (!sm.movie.hidden) movieDao.setHidden(sm.movie.id, hidden = true)
-                    hiddenCount++
-                }
-            }
-            if (deleteMovieIds.isNotEmpty()) {
-                movieDao.deleteByIds(deleteMovieIds)
-                contentDao.deleteByContentIds(deleteContentIds)
+            // DELETE every loser (exact dup OR quality variant) rather than
+            // hide it.  A hidden loser would be un-hidden again by the next
+            // filter recompute (it can't tell a dedup-hide from a filter-
+            // hide), recreating the duplicate.  Deleting removes that race
+            // entirely; the genuine different-quality URLs are preserved as
+            // fallbacks on the winner so playback can still step down.
+            val losers = scored.filter { it.movie.id != winner.movie.id }
+            if (losers.isNotEmpty()) {
+                movieDao.deleteByIds(losers.map { it.movie.id })
+                contentDao.deleteByContentIds(losers.map { it.movie.contentId })
+                hiddenCount += losers.size
             }
 
-            // Keep the genuine (different-URL) variants as quality fallbacks
-            // on the winner's content row, so if the winner can't be decoded
-            // the player can step down to a lower-quality source.
-            val altUrls = scored
-                .filter { it.movie.id != winner.movie.id }
+            val altUrls = losers
                 .filter { streamUrls[it.movie.contentId].orEmpty().let { u -> u.isNotBlank() && u != winnerUrl } }
                 .sortedByDescending { it.quality.ordinal }
                 .mapNotNull { streamUrls[it.movie.contentId] }
@@ -283,12 +261,9 @@ class MovieDeduplicator @Inject constructor(
 
         for ((normTitle, variants) in groups) {
             if (variants.size <= 1) {
-                // No duplicates — ensure the single entry is visible,
-                // but never un-hide a manual "Ignore this show".
-                val only = variants.first()
-                if (only.hidden && !only.userHidden) {
-                    seriesDao.setHidden(only.seriesTitle, hidden = false)
-                }
+                // Single variant — nothing to dedupe, and we never un-hide
+                // (the filter recompute owns visibility; un-hiding here
+                // resurrected language-filtered shows).
                 continue
             }
 
@@ -313,11 +288,13 @@ class MovieDeduplicator @Inject constructor(
                 .first()
 
             for (sm in scored) {
-                val shouldHide = sm.series.id != winner.series.id || sm.series.userHidden
-                if (sm.series.hidden != shouldHide) {
-                    seriesDao.setHidden(sm.series.seriesTitle, hidden = shouldHide)
+                // Only ever HIDE losers — never un-hide the winner (the
+                // filter recompute owns visibility).
+                if (sm.series.id == winner.series.id) continue
+                if (!sm.series.hidden) {
+                    seriesDao.setHidden(sm.series.seriesTitle, hidden = true)
                 }
-                if (shouldHide) hiddenCount++
+                hiddenCount++
             }
 
             Log.d(
